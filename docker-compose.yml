@@ -1,0 +1,16 @@
+services:
+  dashboard:
+    build: .
+    ports:
+      - "8050:8050"
+    volumes:
+      # Persist captured CSV files on the host
+      - ./data:/app/data
+    # Pass all USB buses through so the RTL-SDR dongle is accessible
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8050
+      - FLASK_DEBUG=false
+    restart: unless-stopped
