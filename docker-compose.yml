@@ -4,13 +4,16 @@ services:
     ports:
       - "8050:8050"
     volumes:
-      # Persist captured CSV files on the host
+      # Persists the SQLite database, CSV captures, and log file on the host
       - ./data:/app/data
     # Pass all USB buses through so the RTL-SDR dongle is accessible
     devices:
       - /dev/bus/usb:/dev/bus/usb
     environment:
-      - HOST=0.0.0.0
-      - PORT=8050
-      - FLASK_DEBUG=false
+      HOST: "0.0.0.0"
+      PORT: "8050"
+      FLASK_DEBUG: "false"
+      DATA_DIR: "/app/data"
+      BANDS_CONFIG: "/app/bands.yaml"
+      LOG_PATH: "/app/data/app.log"
     restart: unless-stopped

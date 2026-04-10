@@ -1,0 +1,43 @@
+/* ── Slider rail (unfilled track) ───────────────────────────────────────── */
+.rc-slider-rail {
+    background-color: #444;
+}
+
+/* ── Slider track (filled portion) ─────────────────────────────────────── */
+.rc-slider-track {
+    background-color: #4fc3f7;
+}
+
+/* ── Slider handle ──────────────────────────────────────────────────────── */
+.rc-slider-handle {
+    border-color: #4fc3f7;
+    background-color: #4fc3f7;
+}
+.rc-slider-handle:hover,
+.rc-slider-handle:active {
+    border-color: #81d4fa;
+    background-color: #81d4fa;
+}
+
+/* ── Tooltip bubble (current value) ────────────────────────────────────── */
+.rc-slider-tooltip-inner,
+.dash-slider-tooltip,
+[id$="-tooltip-1"],
+[id$="-tooltip-2"] {
+    background-color: #222 !important;
+    color: #ddd !important;
+    border: 1px solid #555 !important;
+}
+
+.rc-slider-tooltip-arrow {
+    border-top-color: #555 !important;
+    border-bottom-color: #555 !important;
+}
+
+/* ── Dash 4 numeric input next to slider ────────────────────────────────── */
+.dash-range-slider-input {
+    background-color: #2a2a2a !important;
+    color: #ddd !important;
+    border: 1px solid #555 !important;
+    border-radius: 4px;
+}

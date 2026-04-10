@@ -1,118 +1,65 @@
 """
-Parse rtl_power CSV output.
-
-rtl_power CSV row format:
-  date, time, hz_low, hz_high, hz_step, num_samples, db0, db1, ..., dbN
+Public query interface for band data.
+Legacy CSV migration helpers are kept at the bottom.
 """
 
+import math
 import numpy as np
 import pandas as pd
 from pathlib import Path
 
-from app.config import DATA_DIR
+from app.data import db
 
 
-def list_sessions() -> list[dict]:
-    """Return metadata for every recorded session (newest first)."""
-    sessions = []
-    for csv_file in sorted(DATA_DIR.glob("*.csv"), reverse=True):
-        size = csv_file.stat().st_size
-        sessions.append({
-            "id": csv_file.stem,
-            "filename": csv_file.name,
-            "size_bytes": size,
-        })
-    return sessions
+# ── Float sanitization ────────────────────────────────────────────────────────
 
+def _safe_float(v, default=None):
+    """Return v as a finite float, or default for None / NaN / Inf values.
 
-def parse_rtl_power_csv(filepath: Path) -> pd.DataFrame | None:
+    Keeps JSON output well-formed: Python's json encoder serialises float('nan')
+    as the bare token ``NaN`` which is not valid JSON.  Any non-finite value is
+    replaced with *default* (``None`` → JSON ``null``) instead.
     """
-    Read an rtl_power CSV and return a tidy DataFrame with columns:
-      timestamp (datetime64), frequency_mhz (float64), power_db (float64)
-    """
-    rows = []
-    with open(filepath, errors="replace") as fh:
-        for raw_line in fh:
-            line = raw_line.strip()
-            if not line:
-                continue
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) < 7:
-                continue
-            try:
-                date_str = parts[0]
-                time_str = parts[1]
-                hz_low = float(parts[2])
-                hz_high = float(parts[3])
-                hz_step = float(parts[4])
-                db_values = [float(v) for v in parts[6:] if v]
-            except (ValueError, IndexError):
-                continue
+    if v is None:
+        return default
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return default
+    return f if math.isfinite(f) else default
 
-            if not db_values:
-                continue
 
-            timestamp = pd.Timestamp(f"{date_str} {time_str}")
-            n = len(db_values)
-            # rtl_power centres bins between hz_low and hz_high
-            freqs_mhz = np.linspace(hz_low, hz_high, n) / 1e6
-
-            for freq, db in zip(freqs_mhz, db_values):
-                rows.append((timestamp, freq, db))
-
-    if not rows:
-        return None
-
-    df = pd.DataFrame(rows, columns=["timestamp", "frequency_mhz", "power_db"])
-    return df
-
+# ── Heatmap builder ───────────────────────────────────────────────────────────
 
 def build_heatmap_arrays(
     df: pd.DataFrame,
     max_time_bins: int = 300,
     max_freq_bins: int = 500,
 ) -> dict:
-    """
-    Pivot the tidy DataFrame into 2-D arrays suitable for go.Heatmap.
-    Down-samples if the data is very large.
-
-    Returns:
-        {
-          "x": list of ISO timestamp strings  (time axis),
-          "y": list of frequency values in MHz (freq axis),
-          "z": 2-D list [freq_index][time_index] of power dB values,
-          "freq_min": float,
-          "freq_max": float,
-          "time_min": str,
-          "time_max": str,
-        }
-    """
     pivot = df.pivot_table(
         index="timestamp",
         columns="frequency_mhz",
         values="power_db",
         aggfunc="mean",
     )
-
-    # Down-sample time axis
     if len(pivot) > max_time_bins:
         step = len(pivot) // max_time_bins
         pivot = pivot.iloc[::step]
-
-    # Down-sample frequency axis
     if pivot.shape[1] > max_freq_bins:
         step = pivot.shape[1] // max_freq_bins
         pivot = pivot.iloc[:, ::step]
 
-    # Fill any gaps with NaN (plotly renders them as blank)
-    z = pivot.T.values  # shape: (n_freq, n_time)
-    x = [str(t) for t in pivot.index]
-    y = list(pivot.columns.astype(float))
-
+    z = pivot.T.values
+    # pivot_table fills missing time/freq combinations with NaN; replace with
+    # None so the output is valid JSON (NaN is not a JSON token).
+    z_json = [
+        [_safe_float(v) for v in row]
+        for row in z.tolist()
+    ]
     return {
-        "x": x,
-        "y": y,
-        "z": z.tolist(),
+        "x": [str(t) for t in pivot.index],
+        "y": list(pivot.columns.astype(float)),
+        "z": z_json,
         "freq_min": float(df["frequency_mhz"].min()),
         "freq_max": float(df["frequency_mhz"].max()),
         "time_min": str(df["timestamp"].min()),
@@ -120,88 +67,138 @@ def build_heatmap_arrays(
     }
 
 
-def get_session_data(session_id: str) -> dict | None:
-    """High-level helper used by both the API and Dash callbacks."""
-    filepath = DATA_DIR / f"{session_id}.csv"
-    if not filepath.exists():
+# ── Band query functions ──────────────────────────────────────────────────────
+
+def get_band_data(band_id: str, filters: dict | None = None) -> dict | None:
+    rows = db.fetch_band_measurements(band_id, filters)
+    if not rows:
         return None
-    df = parse_rtl_power_csv(filepath)
-    if df is None or df.empty:
-        return None
+    df = pd.DataFrame(rows, columns=["timestamp", "frequency_mhz", "power_db"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
     return build_heatmap_arrays(df)
 
 
-def get_frequency_stats(session_id: str) -> dict | None:
-    """
-    Return per-frequency statistics across all time:
-      - mean_db: average power per frequency bin
-      - peak_db: max power per frequency bin
-    """
-    filepath = DATA_DIR / f"{session_id}.csv"
-    if not filepath.exists():
+def get_band_stats(band_id: str, filters: dict | None = None) -> dict | None:
+    rows = db.fetch_band_stats(band_id, filters)
+    if not rows:
         return None
-    df = parse_rtl_power_csv(filepath)
-    if df is None or df.empty:
+    freqs, means, peaks = [], [], []
+    for r in rows:
+        f = _safe_float(r["frequency_mhz"])
+        m = _safe_float(r["mean_db"])
+        p = _safe_float(r["peak_db"])
+        if f is None or m is None or p is None:
+            continue  # skip rows with non-finite aggregates
+        freqs.append(f)
+        means.append(m)
+        peaks.append(p)
+    if not freqs:
         return None
+    return {"frequency_mhz": freqs, "mean_db": means, "peak_db": peaks}
 
-    stats = (
-        df.groupby("frequency_mhz")["power_db"]
-        .agg(mean_db="mean", peak_db="max")
-        .reset_index()
-        .sort_values("frequency_mhz")
-    )
+
+def get_band_activity(band_id: str, threshold_db: float,
+                      filters: dict | None = None) -> dict | None:
+    rows = db.fetch_band_activity(band_id, threshold_db, filters)
+    if not rows:
+        return None
+    freqs, pcts = [], []
+    for r in rows:
+        f = _safe_float(r["frequency_mhz"])
+        if f is None:
+            continue
+        pct = round(r["active"] / r["total"] * 100, 2) if r["total"] else 0.0
+        freqs.append(f)
+        pcts.append(pct)
+    if not freqs:
+        return None
+    return {"frequency_mhz": freqs, "activity_pct": pcts}
+
+
+def get_band_timeseries(band_id: str, target_freq_mhz: float,
+                        filters: dict | None = None) -> dict | None:
+    actual_freq = db.fetch_band_closest_freq(band_id, target_freq_mhz)
+    if actual_freq is None:
+        return None
+    rows = db.fetch_band_timeseries(band_id, actual_freq, filters)
+    if not rows:
+        return None
+    timestamps, powers = [], []
+    for r in rows:
+        p = _safe_float(r["power_db"])
+        if p is None:
+            continue  # skip non-finite power readings
+        timestamps.append(r["timestamp"])
+        powers.append(p)
+    if not timestamps:
+        return None
     return {
-        "frequency_mhz": stats["frequency_mhz"].tolist(),
-        "mean_db": stats["mean_db"].tolist(),
-        "peak_db": stats["peak_db"].tolist(),
+        "frequency_mhz": round(actual_freq, 4),
+        "timestamps":    timestamps,
+        "power_db":      powers,
     }
 
 
-def get_frequency_activity(session_id: str, threshold_db: float) -> dict | None:
-    """
-    Return per-frequency activity: % of time power exceeds threshold_db.
-    """
-    filepath = DATA_DIR / f"{session_id}.csv"
-    if not filepath.exists():
+# ── Legacy CSV migration ──────────────────────────────────────────────────────
+
+def _parse_csv_row(parts: list) -> tuple | None:
+    """Parse pre-split CSV parts into (timestamp, hz_low, hz_high, db_values) or None."""
+    if len(parts) < 7:
         return None
-    df = parse_rtl_power_csv(filepath)
-    if df is None or df.empty:
+    try:
+        timestamp = f"{parts[0]} {parts[1]}"
+        hz_low    = float(parts[2])
+        hz_high   = float(parts[3])
+        db_values = [float(v) for v in parts[6:] if v]
+    except (ValueError, IndexError):
         return None
-
-    total_per_freq = df.groupby("frequency_mhz")["power_db"].count()
-    active_per_freq = (
-        df[df["power_db"] >= threshold_db]
-        .groupby("frequency_mhz")["power_db"]
-        .count()
-    )
-    activity_pct = (active_per_freq / total_per_freq * 100).fillna(0).reset_index()
-    activity_pct.columns = ["frequency_mhz", "activity_pct"]
-    activity_pct = activity_pct.sort_values("frequency_mhz")
-    return {
-        "frequency_mhz": activity_pct["frequency_mhz"].tolist(),
-        "activity_pct": activity_pct["activity_pct"].tolist(),
-    }
-
-
-def get_frequency_timeseries(session_id: str, target_freq_mhz: float) -> dict | None:
-    """Return power over time for the frequency bin closest to target_freq_mhz."""
-    filepath = DATA_DIR / f"{session_id}.csv"
-    if not filepath.exists():
+    if not db_values:
         return None
-    df = parse_rtl_power_csv(filepath)
-    if df is None or df.empty:
+    return timestamp, hz_low, hz_high, db_values
+
+
+def _parse_rtl_power_csv(filepath: Path) -> pd.DataFrame | None:
+    rows = []
+    with open(filepath, errors="replace") as fh:
+        for raw_line in fh:
+            line = raw_line.strip()
+            if not line:
+                continue
+            parsed = _parse_csv_row([p.strip() for p in line.split(",")])
+            if parsed is None:
+                continue
+            timestamp, hz_low, hz_high, db_values = parsed
+            freqs_mhz = np.linspace(hz_low, hz_high, len(db_values)) / 1e6
+            for freq, db_val in zip(freqs_mhz, db_values):
+                rows.append((timestamp, float(freq), float(db_val)))
+    if not rows:
         return None
+    return pd.DataFrame(rows, columns=["timestamp", "frequency_mhz", "power_db"])
 
-    # Find closest frequency bin
-    closest = df["frequency_mhz"].sub(target_freq_mhz).abs().idxmin()
-    actual_freq = df.at[closest, "frequency_mhz"]
 
-    series = (
-        df[df["frequency_mhz"] == actual_freq]
-        .sort_values("timestamp")[["timestamp", "power_db"]]
-    )
-    return {
-        "frequency_mhz": round(float(actual_freq), 4),
-        "timestamps": [str(t) for t in series["timestamp"]],
-        "power_db": series["power_db"].tolist(),
-    }
+def migrate_csv_sessions(csv_dir: Path) -> None:
+    """Import legacy CSV files into the sessions/measurements tables. Safe to call repeatedly."""
+    import sqlite3
+    from app.config import DB_PATH
+
+    existing = {s["id"] for s in db.list_sessions()}
+    for csv_file in sorted(csv_dir.glob("*.csv")):
+        session_id = csv_file.stem
+        if session_id in existing:
+            continue
+        df = _parse_rtl_power_csv(csv_file)
+        if df is None or df.empty:
+            continue
+        db.create_session(session_id, session_id)
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        rows = list(df.itertuples(index=False, name=None))
+        conn.executemany(
+            "INSERT INTO measurements (session_id, timestamp, frequency_mhz, power_db)"
+            " VALUES (?, ?, ?, ?)",
+            [(session_id, ts, freq, pwr) for ts, freq, pwr in rows],
+        )
+        conn.commit()
+        conn.close()
+        print(f"[migration] imported {csv_file.name} ({len(rows)} rows)")

@@ -1,0 +1,12 @@
+2026-04-10 11:09:52  INFO      app  Starting RTL Power Dashboard
+2026-04-10 11:09:52  INFO      app  Database initialised
+2026-04-10 11:09:52  INFO      app.data.db  Seeding 9 band(s) from bands.yaml
+2026-04-10 11:09:52  INFO      app  Startup complete
+2026-04-10 11:09:53  INFO      app  Starting RTL Power Dashboard
+2026-04-10 11:09:53  INFO      app  Database initialised
+2026-04-10 11:09:53  INFO      app.data.db  Seeding 9 band(s) from bands.yaml
+2026-04-10 11:09:53  INFO      app.capture.manager  Starting device 0 with 2 band(s): GMRS, VHF 144-165
+2026-04-10 11:09:53  INFO      app.capture.rtl_power  rtl_power process started (pid 217667) — 2 band(s) on device 0
+2026-04-10 11:09:53  INFO      app  Auto-started 2 band(s): GMRS, VHF 144-165
+2026-04-10 11:09:53  INFO      app  Startup complete
+2026-04-10 11:09:53  WARNING   werkzeug   * Debugger is active!

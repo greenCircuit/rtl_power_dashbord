@@ -1,2 +1,8 @@
 venv/
 vevn/
+*.db
+data/
+__pycache__/
+*.pyc
+*.pyo
+.claude/
