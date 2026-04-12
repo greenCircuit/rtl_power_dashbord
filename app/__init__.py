@@ -1,12 +1,14 @@
 import logging
 import os
 import subprocess
+from pathlib import Path
 
-from flask import Flask, render_template
+from flask import Flask, send_from_directory
 
-from app.config import configure_logging, DATA_DIR, BANDS_CONFIG
+from app.config import configure_logging, BANDS_CONFIG, DEMO_MODE
 from app.data.db import init_db, seed_bands_from_yaml, list_bands
-from app.data.parser import migrate_csv_sessions
+
+UI_DIST = Path(__file__).parent.parent / 'ui' / 'dist'
 
 configure_logging()
 log = logging.getLogger(__name__)
@@ -27,8 +29,6 @@ def create_app() -> Flask:
     init_db()
     log.info("Database initialised")
     seed_bands_from_yaml(BANDS_CONFIG)
-    migrate_csv_sessions(DATA_DIR)
-
     # Only auto-start captures in the reloader child process (or when reloader
     # is disabled) — avoids double-start and dongle contention in debug mode.
     in_reloader_child = os.environ.get("WERKZEUG_RUN_MAIN") == "true"
@@ -36,7 +36,8 @@ def create_app() -> Flask:
     should_start = in_reloader_child or not reloader_active
 
     if should_start:
-        _kill_stale_rtl_power()
+        if not DEMO_MODE:
+            _kill_stale_rtl_power()
         from app.capture.manager import band_manager
         active_bands = [b for b in list_bands() if b.get("is_active")]
         if active_bands:
@@ -49,13 +50,18 @@ def create_app() -> Flask:
 
     log.info("Startup complete")
 
-    server = Flask(__name__)
+    server = Flask(__name__, static_folder=None)
 
     from app.api.routes import api_bp
     server.register_blueprint(api_bp)
 
     @server.route("/")
     def index():
-        return render_template("index.html")
+        return send_from_directory(str(UI_DIST), 'index.html')
+
+    # Serve Vite-built assets (hashed filenames like /assets/index-abc123.js)
+    @server.route("/assets/<path:filename>")
+    def ui_assets(filename: str):
+        return send_from_directory(str(UI_DIST / 'assets'), filename)
 
     return server

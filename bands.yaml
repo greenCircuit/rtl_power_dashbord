@@ -6,14 +6,21 @@
 #   k = kHz   M = MHz   G = GHz
 # Examples: "462.5M", "25k", "1.2G"
 
+# remove older data automatically because can gather too much data if left running
+clean_up:
+  enabled: true
+  # rules for cleaning data, they are or statement
+  interval: "7d"          # keep data worth of 7 days
+  db_max_size_mb: "1024"  # maximum size of database allowed
+
 bands:
   - id: gmrs
     name: GMRS
     freq_start: "462.5M"
     freq_end:   "462.8M"
-    freq_step:  "12.5k"
-    interval_s: 5
-    min_power: -100
+    freq_step:  "12.5k"   
+    interval_s: 10
+    min_power: 1         # -100 will allow recording anything, but will fill database pretty quickly and make more unnecessary db load
     device_index: 0
     is_active: true
 
@@ -22,77 +29,77 @@ bands:
     freq_start: "144M"
     freq_end:   "165M"
     freq_step:  "12.5k"
-    interval_s: 5
-    min_power: -100
+    interval_s: 100
+    min_power: 1
     device_index: 0
     is_active: true
 
-  - id: noaa-weather
-    name: NOAA Weather
-    freq_start: "162.4M"
-    freq_end:   "162.55M"
-    freq_step:  "25k"
-    interval_s: 5
-    min_power: -100
-    device_index: 0
-    is_active: false
+  # - id: noaa-weather
+    # name: NOAA Weather
+    # freq_start: "162.4M"
+    # freq_end:   "162.55M"
+    # freq_step:  "25k"
+    # interval_s: 5
+    # min_power: -100
+    # device_index: 0
+    # is_active: false
 
-  - id: aviation
-    name: Aviation VHF
-    freq_start: "118M"
-    freq_end:   "136M"
-    freq_step:  "25k"
-    interval_s: 5
-    min_power: -100
-    device_index: 0
-    is_active: false
+  # - id: aviation
+    # name: Aviation VHF
+    # freq_start: "118M"
+    # freq_end:   "136M"
+    # freq_step:  "25k"
+    # interval_s: 5
+    # min_power: -100
+    # device_index: 0
+    # is_active: false
 
-  - id: marine-vhf
-    name: Marine VHF
-    freq_start: "156M"
-    freq_end:   "174M"
-    freq_step:  "25k"
-    interval_s: 5
-    min_power: -100
-    device_index: 0
-    is_active: false
+  # - id: marine-vhf
+    # name: Marine VHF
+    # freq_start: "156M"
+    # freq_end:   "174M"
+    # freq_step:  "25k"
+    # interval_s: 5
+    # min_power: -100
+    # device_index: 0
+    # is_active: false
 
-  - id: ism-433
-    name: ISM 433 MHz
-    freq_start: "433.05M"
-    freq_end:   "434.79M"
-    freq_step:  "10k"
-    interval_s: 5
-    min_power: -100
-    device_index: 0
-    is_active: false
+  # - id: ism-433
+    # name: ISM 433 MHz
+    # freq_start: "433.05M"
+    # freq_end:   "434.79M"
+    # freq_step:  "10k"
+    # interval_s: 5
+    # min_power: -100
+    # device_index: 0
+    # is_active: false
 
-  - id: ism-915
-    name: ISM 915 MHz
-    freq_start: "902M"
-    freq_end:   "928M"
-    freq_step:  "25k"
-    interval_s: 5
-    min_power: -100
-    device_index: 0
-    is_active: false
+  # - id: ism-915
+    # name: ISM 915 MHz
+    # freq_start: "902M"
+    # freq_end:   "928M"
+    # freq_step:  "25k"
+    # interval_s: 5
+    # min_power: -100
+    # device_index: 0
+    # is_active: false
 
-  - id: ham-70cm
-    name: Ham 70cm
-    freq_start: "420M"
-    freq_end:   "450M"
-    freq_step:  "25k"
-    interval_s: 5
-    min_power: -100
-    device_index: 0
-    is_active: false
+  # - id: ham-70cm
+    # name: Ham 70cm
+    # freq_start: "420M"
+    # freq_end:   "450M"
+    # freq_step:  "25k"
+    # interval_s: 5
+    # min_power: -100
+    # device_index: 0
+    # is_active: false
 
-  - id: fm-broadcast
-    name: FM Broadcast
-    freq_start: "87.5M"
-    freq_end:   "108M"
-    freq_step:  "100k"
-    interval_s: 5
-    min_power: -100
-    device_index: 0
-    is_active: false
+  # - id: fm-broadcast
+    # name: FM Broadcast
+    # freq_start: "87.5M"
+    # freq_end:   "108M"
+    # freq_step:  "100k"
+    # interval_s: 5
+    # min_power: -100
+    # device_index: 0
+    # is_active: false

@@ -48,7 +48,7 @@ def _build_measurement_rows(date_str: str, time_str: str,
     """Convert parsed line data into (timestamp, freq_mhz, power_db) tuples."""
     timestamp = f"{date_str} {time_str}"
     freqs_mhz = np.linspace(hz_low, hz_high, len(db_values)) / 1e6
-    return [(timestamp, float(f), float(d)) for f, d in zip(freqs_mhz, db_values)]
+    return [(timestamp, f.item(), d) for f, d in zip(freqs_mhz, db_values)]
 
 
 class RTLPowerCapture:
@@ -77,8 +77,10 @@ class RTLPowerCapture:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
 
         interval = min(b["interval_s"] for b in bands)
+        # Sort bands low-to-high so rtl_power scans in ascending frequency order
+        sorted_bands = sorted(bands, key=lambda b: _freq_to_hz(b["freq_start"]))
         cmd = ["rtl_power", "-d", str(device_index)]
-        for b in bands:
+        for b in sorted_bands:
             cmd += ["-f", f"{b['freq_start']}:{b['freq_end']}:{b['freq_step']}"]
         cmd += ["-i", str(interval), "/dev/stdout"]
 
@@ -125,8 +127,33 @@ class RTLPowerCapture:
         conn = sqlite3.connect(str(DB_PATH))
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size = -16384")  # 16 MB page cache
+        conn.execute("PRAGMA temp_store = MEMORY")
+
         lines_parsed = 0
-        rows_stored = 0
+        rows_stored  = 0
+        unmatched    = 0
+
+        # Buffer rows by timestamp so we commit once per complete sweep instead
+        # of once per CSV line.  A VHF scan at 12.5 kHz steps produces ~1680
+        # lines per sweep; batching cuts commit rate from ~1680/sweep to 1/sweep.
+        pending:    dict[str, list] = {}  # band_id -> row list
+        per_band:   dict[str, int]  = {}  # band_id -> lines routed (for diagnostics)
+        current_ts: str | None      = None
+        sweeps      = 0
+
+        def _flush():
+            nonlocal rows_stored, sweeps
+            sweeps += 1
+            for bid, rows in pending.items():
+                insert_band_measurements(conn, bid, rows)
+                rows_stored += len(rows)
+            conn.commit()
+            pending.clear()
+            if sweeps % 10 == 0:
+                log.info("sweep #%d — routed: %s — unmatched: %d",
+                         sweeps, dict(per_band), unmatched)
+
         try:
             for raw_line in self._process.stdout:
                 line = raw_line.decode(errors="replace").strip()
@@ -138,32 +165,37 @@ class RTLPowerCapture:
                     continue
                 date_str, time_str, hz_low, hz_high, db_values = parsed
                 lines_parsed += 1
+                ts = f"{date_str} {time_str}"
 
-                # Route line to band by checking which band's range the midpoint falls in
-                mid_hz = (hz_low + hz_high) / 2
+                # New timestamp → previous sweep is complete, flush to DB
+                if current_ts is not None and ts != current_ts:
+                    _flush()
+                current_ts = ts
+
+                # Route by overlap: assign to the band whose range overlaps this
+                # CSV chunk.  Overlap is more robust than midpoint containment —
+                # rtl_power may extend hz_high beyond the requested range when
+                # the narrow band is smaller than one FFT window.
                 band_id = min_power = None
                 for r_low, r_high, r_id, r_min in routes:
-                    if r_low <= mid_hz <= r_high:
+                    if hz_low <= r_high and hz_high >= r_low:
                         band_id, min_power = r_id, r_min
                         break
 
                 if band_id is None:
-                    log.debug("No band match for %.3f–%.3f MHz", hz_low / 1e6, hz_high / 1e6)
+                    unmatched += 1
                     continue
 
+                per_band[band_id] = per_band.get(band_id, 0) + 1
                 peak = max(db_values)
                 if peak < min_power:
-                    log.debug("[%s] below threshold (%.1f dB), skipping", band_id, peak)
                     continue
 
                 rows = _build_measurement_rows(date_str, time_str, hz_low, hz_high, db_values)
-                insert_band_measurements(conn, band_id, rows)
-                conn.commit()
-                rows_stored += len(rows)
-                log.debug("[%s] stored %d points @ %s %s (%.3f–%.3f MHz, peak %.1f dB)",
-                          band_id, len(rows), date_str, time_str,
-                          hz_low / 1e6, hz_high / 1e6, peak)
+                pending.setdefault(band_id, []).extend(rows)
         finally:
+            if pending:
+                _flush()
             conn.close()
             self._process.wait()
             self._finalize(lines_parsed, rows_stored)

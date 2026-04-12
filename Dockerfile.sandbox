@@ -1,0 +1,29 @@
+FROM python:3.13-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        rtl-sdr \
+        udev \
+        curl \
+        gnupg \
+        git \
+        vim \
+        procps \
+        bash-completion \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js 22 LTS
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir pytest
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+CMD ["bash"]

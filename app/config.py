@@ -12,6 +12,11 @@ DB_PATH = DATA_DIR / "rtl_power.db"
 _default_bands = Path(__file__).resolve().parent.parent / "bands.yaml"
 BANDS_CONFIG = Path(os.environ.get("BANDS_CONFIG", _default_bands))
 
+# Demo mode — set DEMO_MODE=true to replay recorded data without hardware
+DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() == "true"
+_default_seed = Path(__file__).resolve().parent.parent / "demo" / "seed.db"
+DEMO_SEED_DB = Path(os.environ.get("DEMO_SEED_DB", _default_seed))
+
 # Logging
 _project_root = Path(__file__).resolve().parent.parent
 LOG_PATH = Path(os.environ.get("LOG_PATH", _project_root / "log.log"))

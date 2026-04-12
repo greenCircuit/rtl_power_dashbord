@@ -1,0 +1,128 @@
+body {
+  margin: 0;
+  background: #111;
+  color: #ddd;
+}
+
+#root {
+  width: 100%;
+}
+
+/* ── Bootstrap overrides ─────────────────────────────────────────────────── */
+.card {
+  background: #1a1a1a;
+  border-color: #2a2a2a;
+}
+
+.table th {
+  color: #aaa;
+  font-weight: 600;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.table td {
+  vertical-align: middle;
+  font-size: 0.9rem;
+}
+
+/* ── Heatmap ─────────────────────────────────────────────────────────────── */
+.heatmap-wrap {
+  position: relative;
+  width: 100%;
+  height: 480px;
+  background: #0d0d0d;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.heatmap-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+.heatmap-tooltip {
+  position: absolute;
+  background: rgba(15, 15, 15, 0.92);
+  color: #eee;
+  padding: 6px 10px;
+  border-radius: 5px;
+  border: 1px solid #444;
+  font-size: 12px;
+  font-family: monospace;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 10;
+  line-height: 1.6;
+}
+
+.heatmap-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  font-size: 15px;
+}
+
+/* ── Colorbar ────────────────────────────────────────────────────────────── */
+.colorbar-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 480px;
+  padding: 30px 0 50px;
+  gap: 4px;
+}
+
+.colorbar-canvas {
+  width: 18px;
+  flex: 1;
+  border-radius: 3px;
+}
+
+.colorbar-label {
+  font-size: 11px;
+  color: #999;
+}
+
+/* ── Chart boxes ─────────────────────────────────────────────────────────── */
+.chart-box {
+  position: relative;
+  width: 100%;
+}
+
+.chart-box-sm { height: 240px; }
+.chart-box-md { height: 300px; }
+
+.chart-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #555;
+  font-size: 14px;
+}
+
+/* ── Filter panel ────────────────────────────────────────────────────────── */
+.sticky-filter {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: #1a1a1a;
+}
+
+.slider-label {
+  font-size: 0.82rem;
+  color: #888;
+}
+
+.btn-range.active {
+  background-color: var(--bs-primary);
+  border-color: var(--bs-primary);
+  color: #fff;
+}

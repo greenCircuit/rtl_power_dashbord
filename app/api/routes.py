@@ -1,5 +1,9 @@
 import logging
+import re
+import subprocess
+import uuid
 
+import numpy as np
 from flask import Blueprint, jsonify, request
 
 from app.capture.manager import band_manager
@@ -9,10 +13,60 @@ from app.data.parser import (
     get_band_stats,
     get_band_activity,
     get_band_timeseries,
+    get_band_tod_activity,
+    get_all_bands_activity_timeline,
+    get_band_signal_durations,
 )
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 log = logging.getLogger(__name__)
+
+_device_cache: list[dict] | None = None
+
+
+def _get_devices() -> list[dict]:
+    """Return cached device list, probing rtl_test on first call."""
+    global _device_cache
+    if _device_cache is None:
+        _device_cache = _list_rtl_devices()
+        if not _device_cache:
+            _device_cache = [{"index": 0, "name": "Device 0"}]
+    return _device_cache
+
+
+def _device_name(index: int) -> str:
+    for d in _get_devices():
+        if d["index"] == index:
+            return d["name"]
+    return f"Device {index}"
+
+
+def _list_rtl_devices() -> list[dict]:
+    """Return [{index, name}] for each RTL-SDR device found by rtl_test."""
+    try:
+        result = subprocess.run(
+            ["rtl_test"], capture_output=True, text=True, timeout=3
+        )
+        output = result.stderr + result.stdout
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+
+    devices: dict[int, str] = {}
+
+    for line in output.splitlines():
+        # "  0:  Realtek, RTL2838UHIDIR, SN: 00000001"
+        m = re.match(r"^\s+(\d+):\s+.+,\s+(.+),\s+SN:\s+(\S+)", line)
+        if m:
+            idx, model, serial = int(m.group(1)), m.group(2).strip(), m.group(3)
+            devices[idx] = f"{model} (SN: {serial})"
+
+        # "Using device 0: Generic RTL2832U OEM" — the human-readable USB name;
+        # overrides the EEPROM model string above when present.
+        m = re.match(r"^Using device (\d+):\s+(.+)", line)
+        if m:
+            devices[int(m.group(1))] = m.group(2).strip()
+
+    return [{"index": k, "name": v} for k, v in sorted(devices.items())]
 
 
 def _parse_filters(args) -> dict:
@@ -31,18 +85,23 @@ def _parse_filters(args) -> dict:
     return filters
 
 
+@api_bp.route("/devices", methods=["GET"])
+def list_devices():
+    return jsonify({"devices": _get_devices()})
+
+
 @api_bp.route("/bands", methods=["GET"])
 def list_bands():
     bands = db.list_bands()
     statuses = band_manager.all_statuses()
     for b in bands:
         b["status"] = statuses.get(b["id"], "idle")
+        b["device_name"] = _device_name(b["device_index"])
     return jsonify({"bands": bands})
 
 
 @api_bp.route("/bands", methods=["POST"])
 def create_band():
-    import uuid
     body = request.get_json(silent=True) or {}
     required = ("name", "freq_start", "freq_end", "freq_step")
     missing = [f for f in required if not body.get(f)]
@@ -165,3 +224,81 @@ def band_timeseries(band_id: str):
     if data is None:
         return jsonify({"error": "no data"}), 404
     return jsonify(data)
+
+
+# ── Analysis endpoints ────────────────────────────────────────────────────────
+
+@api_bp.route("/bands/<band_id>/tod-activity", methods=["GET"])
+def band_tod_activity(band_id: str):
+    filters   = _parse_filters(request.args)
+    threshold = float(request.args.get("threshold", 0))
+    data = get_band_tod_activity(band_id, threshold, filters)
+    if data is None:
+        return jsonify({"error": "no data"}), 404
+    return jsonify(data)
+
+
+@api_bp.route("/analysis/crossband-timeline", methods=["GET"])
+def crossband_timeline():
+    filters   = _parse_filters(request.args)
+    threshold = float(request.args.get("threshold", 0))
+    ids_param = request.args.get("band_ids", "")
+    all_bands = db.list_bands()
+    band_ids  = [b for b in ids_param.split(",") if b] if ids_param else [b["id"] for b in all_bands]
+    name_map  = {b["id"]: b["name"] for b in all_bands}
+
+    raw = get_all_bands_activity_timeline(band_ids, threshold, filters)
+    if not raw:
+        return jsonify({"error": "no data"}), 404
+
+    result = [
+        {"id": bid, "name": name_map.get(bid, bid),
+         "buckets": s["buckets"], "pcts": s["pcts"]}
+        for bid, s in raw.items()
+    ]
+    return jsonify({"bands": result})
+
+
+@api_bp.route("/analysis/overview", methods=["GET"])
+def bands_overview():
+    threshold = float(request.args.get("threshold", 0))
+    bands  = db.list_bands()
+    result = []
+    for b in bands:
+        stats = db.fetch_band_latest_activity(b["id"], threshold)
+        pct   = 0.0
+        if stats and stats["total"]:
+            pct = round(stats["active"] / stats["total"] * 100, 1)
+        result.append({
+            "id":           b["id"],
+            "name":         b["name"],
+            "freq_range":   f"{b['freq_start']}–{b['freq_end']}",
+            "activity_pct": pct,
+            "last_seen":    stats["last_seen"] if stats else None,
+        })
+    return jsonify({"bands": result})
+
+
+@api_bp.route("/bands/<band_id>/signal-durations", methods=["GET"])
+def band_signal_durations(band_id: str):
+    filters   = _parse_filters(request.args)
+    threshold = float(request.args.get("threshold", 0))
+    data = get_band_signal_durations(band_id, threshold, filters)
+    if data is None:
+        return jsonify({"error": "no data"}), 404
+
+    durations = data["durations_s"]
+    if not durations:
+        return jsonify({"error": "no data"}), 404
+
+    n_bins    = 30
+    min_d, max_d = min(durations), max(durations)
+    if min_d == max_d:
+        return jsonify({"bins": [min_d], "counts": [len(durations)],
+                        "total": len(durations), "min_s": min_d, "max_s": max_d})
+
+    counts_arr, edges = np.histogram(durations, bins=n_bins)
+    bins = [round((edges[i] + edges[i + 1]) / 2, 2) for i in range(n_bins)]
+    return jsonify({"bins": bins, "counts": counts_arr.tolist(),
+                    "total": len(durations),
+                    "min_s": round(min_d, 2), "max_s": round(max_d, 2)})

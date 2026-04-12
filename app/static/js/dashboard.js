@@ -27,6 +27,30 @@ function plasmaColor(t) {
   ];
 }
 
+// ── YlOrRd colorscale (for ToD heatmap) ──────────────────────────────────────
+const YLORRD = [
+  [255, 255, 204],
+  [255, 237, 160],
+  [254, 217, 118],
+  [254, 178,  76],
+  [253, 141,  60],
+  [252,  78,  42],
+  [227,  26,  28],
+  [177,   0,  38],
+];
+
+function ylorrdColor(t) {
+  const n = YLORRD.length - 1;
+  const s = Math.max(0, Math.min(1, t)) * n;
+  const i = Math.floor(s), f = s - i;
+  const a = YLORRD[Math.min(i, n)], b = YLORRD[Math.min(i + 1, n)];
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * f),
+    Math.round(a[1] + (b[1] - a[1]) * f),
+    Math.round(a[2] + (b[2] - a[2]) * f),
+  ];
+}
+
 // ── Global state ──────────────────────────────────────────────────────────────
 const state = {
   bandId:      null,
@@ -34,12 +58,37 @@ const state = {
   filters:     {},
   timeRange:   '12h',
   heatmap:     null,   // last drawn heatmap data + layout info
+  devices:     [],     // [{index, name}] from /api/devices
   charts: {
     spectrum:   null,
     activity:   null,
     timeseries: null,
+    duration:   null,
   },
 };
+
+// ── Device helpers ────────────────────────────────────────────────────────────
+async function fetchDevices() {
+  try {
+    const data = await apiFetch('/api/devices');
+    state.devices = data.devices || [];
+  } catch (e) {
+    console.error('fetchDevices failed:', e);
+    state.devices = [{ index: 0, name: 'Device 0' }];
+  }
+  const sel = document.getElementById('modal-device-index');
+  if (sel) {
+    sel.innerHTML = state.devices
+      .map(d => `<option value="${d.index}">${esc(d.name)}</option>`)
+      .join('');
+  }
+}
+
+function deviceName(index) {
+  const i = Number(index);
+  const d = state.devices.find(d => d.index === i);
+  return d ? d.name : `Device ${i}`;
+}
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 function esc(s) {
@@ -135,7 +184,7 @@ function renderBandTable(bands) {
         <td>${esc(b.freq_step)}</td>
         <td>${esc(b.interval_s)} s</td>
         <td>${esc(b.min_power)} dB</td>
-        <td>${esc(b.device_index)}</td>
+        <td>${esc(b.device_name || b.device_index)}</td>
         <td><span class="badge bg-${color}">${esc(b.status)}</span></td>
         <td>
           <div class="btn-group btn-group-sm">
@@ -170,6 +219,7 @@ function updateBandDropdown(bands) {
   sel.innerHTML = '<option value="">Select a band…</option>' +
     bands.map(b => `<option value="${esc(b.id)}" ${b.id === current ? 'selected' : ''}>${esc(b.name)}</option>`).join('');
 }
+
 
 async function fetchBands() {
   try {
@@ -602,43 +652,101 @@ function showHeatmapEmpty(msg) {
 
 // Heatmap mouse events
 function setupHeatmapEvents() {
-  const canvas  = document.getElementById('heatmap-canvas');
-  const tooltip = document.getElementById('heatmap-tooltip');
+  const canvas     = document.getElementById('heatmap-canvas');
+  const crosshair  = document.getElementById('heatmap-crosshair');
+  const tooltip    = document.getElementById('heatmap-tooltip');
+
+  function clearCrosshair() {
+    const ctx = crosshair.getContext('2d');
+    ctx.clearRect(0, 0, crosshair.width, crosshair.height);
+  }
+
+  function drawCrosshair(crossX, crossY, h) {
+    const { left, top, plotW, plotH } = h;
+    const dpr = window.devicePixelRatio || 1;
+    // Keep crosshair canvas in sync with main canvas dimensions
+    if (crosshair.width !== canvas.width || crosshair.height !== canvas.height) {
+      crosshair.width  = canvas.width;
+      crosshair.height = canvas.height;
+    }
+    const ctx = crosshair.getContext('2d');
+    ctx.clearRect(0, 0, crosshair.width, crosshair.height);
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([4, 4]);
+    // Horizontal line (frequency)
+    ctx.beginPath();
+    ctx.moveTo(left, crossY);
+    ctx.lineTo(left + plotW, crossY);
+    ctx.stroke();
+    // Vertical line (time)
+    ctx.beginPath();
+    ctx.moveTo(crossX, top);
+    ctx.lineTo(crossX, top + plotH);
+    ctx.stroke();
+    // Small dot at intersection
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(crossX, crossY, 3, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   canvas.addEventListener('mousemove', e => {
     const h = state.heatmap;
-    if (!h) return;
+    if (!h) { clearCrosshair(); show(tooltip, false); return; }
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
     const { left, top, plotW, plotH, nTime, nFreq } = h;
 
     if (mx < left || mx > left + plotW || my < top || my > top + plotH) {
+      clearCrosshair();
       show(tooltip, false);
       return;
     }
 
     const ti = Math.max(0, Math.min(Math.floor((mx - left) / plotW * nTime), nTime - 1));
     const fi = Math.max(0, Math.min(Math.floor((1 - (my - top) / plotH) * nFreq), nFreq - 1));
+
     const freq  = h.data.y[fi];
     const time  = h.data.x[ti];
-    const power = h.data.z[fi] ? h.data.z[fi][ti] : null;
+    const power = h.data.z[fi] != null ? h.data.z[fi][ti] : null;
 
-    tooltip.textContent =
-      `${time ? String(time).substring(0, 19) : ''} | ${freq != null ? freq.toFixed(3) : '?'} MHz | ${power != null ? power.toFixed(1) : '?'} dBFS`;
+    // Draw crosshair at the snapped cell centre
+    const crossX = left + (ti + 0.5) / nTime * plotW;
+    const crossY = top  + (1 - (fi + 0.5) / nFreq) * plotH;
+    drawCrosshair(crossX, crossY, h);
 
-    // Position tooltip inside heatmap-wrap
+    // Build tooltip HTML
+    const freqStr  = freq  != null ? freq.toFixed(3) + ' MHz'  : '—';
+    const powerStr = power != null ? power.toFixed(1) + ' dBFS' : '—';
+    const timeStr  = time  ? String(time).substring(0, 19)      : '—';
+    tooltip.innerHTML =
+      `<span style="color:#aaa;font-size:10px">${timeStr}</span><br>` +
+      `<b style="color:#7cf">${freqStr}</b>&nbsp;&nbsp;` +
+      `<b style="color:#fc8">${powerStr}</b>`;
+
+    // Position: prefer right-of-cursor, flip left if near right edge
     const wrapRect = canvas.parentElement.getBoundingClientRect();
-    let tx = e.clientX - wrapRect.left + 12;
-    let ty = e.clientY - wrapRect.top  - 28;
-    if (tx + 280 > wrapRect.width)  tx = e.clientX - wrapRect.left - 290;
-    if (ty < 4) ty = 4;
+    const TW = 210;
+    let tx = e.clientX - wrapRect.left + 14;
+    let ty = e.clientY - wrapRect.top  - 44;
+    if (tx + TW > wrapRect.width)  tx = e.clientX - wrapRect.left - TW - 10;
+    if (ty < 4) ty = ty + 50;
     tooltip.style.left = tx + 'px';
     tooltip.style.top  = ty + 'px';
     show(tooltip, true);
   });
 
-  canvas.addEventListener('mouseleave', () => show(tooltip, false));
+  canvas.addEventListener('mouseleave', () => {
+    clearCrosshair();
+    show(tooltip, false);
+  });
 
   canvas.addEventListener('click', e => {
     const h = state.heatmap;
@@ -776,7 +884,7 @@ function updateSpectrumChart(data) {
 function updateActivityChart(data) {
   hideEmpty('activity');
   const canvas = document.getElementById('activity-canvas');
-  const threshold = document.getElementById('slider-threshold').value;
+  const threshold = getThreshold();
   const labels = data.frequency_mhz;
   const bgColors = data.activity_pct.map(pct => {
     const [r, g, b] = plasmaColor(Math.max(0, Math.min(1, pct / 100 * 0.85 + 0.05)));
@@ -841,10 +949,190 @@ function clearCharts() {
   destroyChart('spectrum');
   destroyChart('activity');
   destroyChart('timeseries');
+  destroyChart('duration');
   showHeatmapEmpty('No band selected');
   showEmpty('spectrum',   'No band selected');
   showEmpty('activity',   'No band selected');
   showEmpty('timeseries', 'Click a frequency on the heatmap to see power over time');
+  clearTodCanvas();
+  showEmpty('tod',      'No band selected');
+  showEmpty('duration', 'No band selected');
+}
+
+function getThreshold() {
+  return parseInt(document.getElementById('threshold').value, 10);
+}
+
+
+// ── ToD occupancy heatmap (canvas) ────────────────────────────────────────────
+const TOD_MARGIN = { top: 28, right: 12, bottom: 36, left: 40 };
+
+function clearTodCanvas() {
+  const canvas = document.getElementById('tod-canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  show('tod-canvas', false);
+}
+
+function drawTodHeatmap(data) {
+  // data: { z: [7][24], y: ['Sun'..], x: [0..23] }
+  const wrap   = document.getElementById('tod-wrap');
+  const canvas = document.getElementById('tod-canvas');
+  show(canvas, true);
+  show('tod-empty', false);
+
+  const dpr  = window.devicePixelRatio || 1;
+  const W0   = wrap.offsetWidth  || 600;
+  const H0   = wrap.offsetHeight || 320;
+  canvas.width  = Math.round(W0 * dpr);
+  canvas.height = Math.round(H0 * dpr);
+  canvas.style.width  = W0 + 'px';
+  canvas.style.height = H0 + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const { top, right, bottom, left } = TOD_MARGIN;
+  const plotW = W0 - left - right;
+  const plotH = H0 - top  - bottom;
+  const nHours = 24, nDays = 7;
+  const cW = plotW / nHours;
+  const cH = plotH / nDays;
+
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, W0, H0);
+
+  // Cells
+  for (let d = 0; d < nDays; d++) {
+    for (let h = 0; h < nHours; h++) {
+      const pct = data.z[d][h];
+      const [r, g, b] = ylorrdColor(pct / 100);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(left + h * cW, top + d * cH, cW, cH);
+    }
+  }
+
+  // Grid
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth   = 0.5;
+  for (let h = 0; h <= nHours; h++) {
+    ctx.beginPath();
+    ctx.moveTo(left + h * cW, top);
+    ctx.lineTo(left + h * cW, top + plotH);
+    ctx.stroke();
+  }
+  for (let d = 0; d <= nDays; d++) {
+    ctx.beginPath();
+    ctx.moveTo(left, top + d * cH);
+    ctx.lineTo(left + plotW, top + d * cH);
+    ctx.stroke();
+  }
+
+  // Y axis labels (days)
+  ctx.fillStyle  = '#ccc';
+  ctx.font       = '11px sans-serif';
+  ctx.textAlign  = 'right';
+  ctx.textBaseline = 'middle';
+  for (let d = 0; d < nDays; d++) {
+    ctx.fillText(data.y[d], left - 4, top + d * cH + cH / 2);
+  }
+
+  // X axis labels (hours, every 2)
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'top';
+  for (let h = 0; h < nHours; h += 2) {
+    ctx.fillText(h, left + h * cW + cW, top + plotH + 4);
+  }
+
+  // Title
+  ctx.fillStyle    = '#ddd';
+  ctx.font         = '12px sans-serif';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('Time-of-Day Occupancy (%)', left + plotW / 2, top - 8);
+
+  // X axis title
+  ctx.fillStyle = '#888';
+  ctx.font      = '10px sans-serif';
+  ctx.fillText('Hour of day', left + plotW / 2, H0 - 3);
+}
+
+
+// ── Signal duration histogram ─────────────────────────────────────────────────
+function updateDurationChart(data) {
+  // data: { bins, counts, total, min_s, max_s }
+  if (!data.bins.length) { showEmpty('duration', 'No transmissions detected'); return; }
+  hideEmpty('duration');
+  const canvas = document.getElementById('duration-canvas');
+  show(canvas, true);
+
+  const labels    = data.bins.map(v => v.toFixed(1));
+  const threshold = getThreshold();
+
+  if (state.charts.duration) {
+    const ch = state.charts.duration;
+    ch.data.labels           = labels;
+    ch.data.datasets[0].data = data.counts;
+    ch.options.plugins.title.text = `Signal Durations above ${threshold} dBFS (n=${data.total})`;
+    ch.update();
+    return;
+  }
+
+  state.charts.duration = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Count',
+        data: data.counts,
+        backgroundColor: '#ab47bc',
+        borderWidth: 0,
+        barPercentage: 1.0,
+        categoryPercentage: 1.0,
+      }],
+    },
+    options: {
+      ...CHART_BASE_OPTS,
+      scales: darkScales('Duration (s)', 'Count'),
+      plugins: {
+        ...CHART_BASE_OPTS.plugins,
+        legend: { display: false },
+        title: { display: true, text: `Signal Durations above ${threshold} dBFS (n=${data.total})`, color: '#ccc' },
+        tooltip: {
+          callbacks: { label: ctx => `${ctx.parsed.y} transmissions` },
+        },
+      },
+    },
+  });
+}
+
+// ── Fetch analysis charts (ToD + duration) ────────────────────────────────────
+async function fetchAnalysisCharts() {
+  if (!state.bandId) return;
+  const threshold = getThreshold();
+  const qs        = filtersToQS({ threshold });
+
+  // Time-of-day occupancy heatmap
+  (async () => {
+    try {
+      const data = await apiFetch(`/api/bands/${state.bandId}/tod-activity${qs}`);
+      drawTodHeatmap(data);
+    } catch {
+      clearTodCanvas();
+      show('tod-empty', true);
+      showEmpty('tod', 'No data yet');
+    }
+  })();
+
+  // Signal duration histogram
+  (async () => {
+    try {
+      const data = await apiFetch(`/api/bands/${state.bandId}/signal-durations${qs}`);
+      updateDurationChart(data);
+    } catch {
+      showEmpty('duration', 'No transmissions detected above threshold');
+    }
+  })();
 }
 
 // ── Fetch all chart data for current band ─────────────────────────────────────
@@ -876,7 +1164,7 @@ async function fetchAllCharts() {
 
   // Activity
   (async () => {
-    const threshold = document.getElementById('slider-threshold').value;
+    const threshold = getThreshold();
     try {
       const data = await apiFetch(`/api/bands/${id}/activity${filtersToQS({ threshold })}`);
       if (state.bandId === id) updateActivityChart(data);
@@ -911,8 +1199,10 @@ function init() {
     if (id !== state.bandId) {
       state.bandId = id;
       destroyChart('timeseries');
+      destroyChart('duration');
       showEmpty('timeseries', 'Click a frequency on the heatmap to see power over time');
       fetchAllCharts();
+      fetchAnalysisCharts();  // ToD + duration refresh on band change
     }
   });
 
@@ -937,39 +1227,45 @@ function init() {
   // Clear filters
   document.getElementById('btn-filter-clear').addEventListener('click', clearFilters);
 
-  // Activity threshold slider
-  const threshSlider = document.getElementById('slider-threshold');
+  // Global activity threshold slider
+  const threshSlider = document.getElementById('threshold');
   const threshLabel  = document.getElementById('threshold-label');
   threshSlider.addEventListener('input', () => {
     threshLabel.textContent = `${threshSlider.value} dB`;
   });
   threshSlider.addEventListener('change', () => {
     if (!state.bandId) return;
-    const id  = state.bandId;
-    const qs  = filtersToQS({ threshold: threshSlider.value });
+    const id = state.bandId;
+    const qs = filtersToQS({ threshold: threshSlider.value });
     apiFetch(`/api/bands/${id}/activity${qs}`)
       .then(data => { if (state.bandId === id) updateActivityChart(data); })
       .catch(() => {});
+    destroyChart('duration');
+    fetchAnalysisCharts();
   });
 
-  // Default to all data so existing recordings are visible immediately
-  applyTimeRange('all');
+  applyTimeRange('12h');
 
-  // Initial band list fetch
-  fetchBands();
+  // Fetch device list once on load (populates modal select + band table names)
+  fetchDevices().then(fetchBands);
 
   // Redraw heatmap on resize
   const heatmapWrap = document.getElementById('heatmap-wrap');
   const ro = new ResizeObserver(debounce(() => {
     if (state.heatmap) drawHeatmap(state.heatmap.data);
-  }, 150));
+  }, 300));
   ro.observe(heatmapWrap);
 
-  // Poll every 5 seconds
+  // Poll main charts every 15 seconds
   setInterval(() => {
     fetchBands();
     if (state.bandId) fetchAllCharts();
-  }, 5000);
+  }, 15000);
+
+  // Poll analysis charts (expensive) every 60 seconds
+  setInterval(() => {
+    if (state.bandId) fetchAnalysisCharts();
+  }, 60000);
 }
 
 document.addEventListener('DOMContentLoaded', init);

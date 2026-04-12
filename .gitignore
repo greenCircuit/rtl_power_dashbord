@@ -6,3 +6,5 @@ __pycache__/
 *.pyc
 *.pyo
 .claude/
+.pytest_cache/
+__init__.py
