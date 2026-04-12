@@ -1,13 +1,12 @@
 import logging
-import sqlite3
 import subprocess
 import threading
 from typing import Optional
 
 import numpy as np
 
-from app.config import DATA_DIR, DB_PATH
-from app.data.db import insert_band_measurements
+from app.config import DATA_DIR
+from app.data.db import get_engine, insert_band_measurements
 
 log = logging.getLogger(__name__)
 
@@ -124,11 +123,7 @@ class RTLPowerCapture:
             for b in bands
         ]
 
-        conn = sqlite3.connect(str(DB_PATH))
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA cache_size = -16384")  # 16 MB page cache
-        conn.execute("PRAGMA temp_store = MEMORY")
+        conn = get_engine().connect()
 
         lines_parsed = 0
         rows_stored  = 0
@@ -197,6 +192,7 @@ class RTLPowerCapture:
             if pending:
                 _flush()
             conn.close()
+            conn = None
             self._process.wait()
             self._finalize(lines_parsed, rows_stored)
 

@@ -13,14 +13,18 @@ clean_up:
   interval: "7d"          # keep data worth of 7 days
   db_max_size_mb: "1024"  # maximum size of database allowed
 
+charts:
+  main_poll_interval_s: 30        # most used charts interval
+  analytics_poll_interval_s: 60   # polling interval for more demanding charts, longer interval because they are more demanding to make
+
 DEMO_MODE: false
 bands:
   - id: gmrs
     name: GMRS
     freq_start: "462.5M"
     freq_end:   "462.8M"
-    freq_step:  "12.5k"   
-    interval_s: 10
+    freq_step:  "25k"   
+    interval_s: 2
     min_power: 1         # -100 will allow recording anything, but will fill database pretty quickly and make more unnecessary db load
     device_index: 0
     is_active: true
@@ -29,8 +33,8 @@ bands:
     name: VHF 144-165
     freq_start: "144M"
     freq_end:   "165M"
-    freq_step:  "12.5k"
-    interval_s: 100
+    freq_step:  "25k"
+    interval_s: 2
     min_power: 1
     device_index: 0
     is_active: true

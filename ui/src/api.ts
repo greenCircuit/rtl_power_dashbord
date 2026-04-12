@@ -24,7 +24,6 @@ export interface Filters {
   freq_max?: number
   time_min?: string
   time_max?: string
-  power_min?: number
 }
 
 export interface HeatmapData {

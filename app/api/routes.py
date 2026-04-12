@@ -71,7 +71,7 @@ def _list_rtl_devices() -> list[dict]:
 
 def _parse_filters(args) -> dict:
     filters = {}
-    for key in ("freq_min", "freq_max", "power_min"):
+    for key in ("freq_min", "freq_max"):
         val = args.get(key)
         if val is not None and val != "":
             try:

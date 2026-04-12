@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useStore } from '../store'
 import type { Filters } from '../api'
 
@@ -22,30 +22,35 @@ export default function FilterPanel() {
   const threshold    = useStore(s => s.threshold)
   const timeRange    = useStore(s => s.timeRange)
   const setTimeRange = useStore(s => s.setTimeRange)
+  const bands        = useStore(s => s.bands)
+  const bandId       = useStore(s => s.bandId)
 
-  const [freqMin,    setFreqMin]    = useState('')
-  const [freqMax,    setFreqMax]    = useState('')
-  const [timeStart,  setTimeStart]  = useState('')
-  const [timeEnd,    setTimeEnd]    = useState('')
-  const [powerMin,   setPowerMin]   = useState(-20)
-  const [powerLabel, setPowerLabel] = useState('−20 dB')
+  const minPower = bands.find(b => b.id === bandId)?.min_power ?? -20
+
+  // Clamp threshold up to band's min_power when band changes
+  useEffect(() => {
+    if (threshold < minPower) setThreshold(minPower)
+  }, [bandId])
+
+  const [freqMin,   setFreqMin]   = useState('')
+  const [freqMax,   setFreqMax]   = useState('')
+  const [timeStart, setTimeStart] = useState('')
+  const [timeEnd,   setTimeEnd]   = useState('')
 
   const buildFilters = useCallback((overrides: Partial<{
-    freqMin: string; freqMax: string; timeStart: string; timeEnd: string; powerMin: number
+    freqMin: string; freqMax: string; timeStart: string; timeEnd: string
   }> = {}): Filters => {
     const fMin   = overrides.freqMin   ?? freqMin
     const fMax   = overrides.freqMax   ?? freqMax
     const tStart = overrides.timeStart ?? timeStart
     const tEnd   = overrides.timeEnd   ?? timeEnd
-    const pMin   = overrides.powerMin  ?? powerMin
     const f: Filters = {}
-    if (fMin !== '')  f.freq_min  = Number(fMin)
-    if (fMax !== '')  f.freq_max  = Number(fMax)
-    if (tStart)       f.time_min  = tStart.replace('T', ' ')
-    if (tEnd)         f.time_max  = tEnd.replace('T', ' ')
-    if (pMin > -20)   f.power_min = pMin
+    if (fMin !== '') f.freq_min = Number(fMin)
+    if (fMax !== '') f.freq_max = Number(fMax)
+    if (tStart)      f.time_min = tStart.replace('T', ' ')
+    if (tEnd)        f.time_max = tEnd.replace('T', ' ')
     return f
-  }, [freqMin, freqMax, timeStart, timeEnd, powerMin])
+  }, [freqMin, freqMax, timeStart, timeEnd])
 
   function applyRange(range: string) {
     setTimeRange(range)
@@ -66,7 +71,6 @@ export default function FilterPanel() {
   function clearFilters() {
     setFreqMin(''); setFreqMax('')
     setTimeStart(''); setTimeEnd('')
-    setPowerMin(-20); setPowerLabel('−20 dB')
     setTimeRange('all')
     setFilters({})
   }
@@ -127,34 +131,14 @@ export default function FilterPanel() {
           </div>
         </div>
 
-        {/* Sliders */}
+        {/* Activity threshold */}
         <div className="row align-items-center g-2 mt-1">
           <div className="col-auto">
-            <span className="slider-label">Min Power (dBFS):</span>
-          </div>
-          <div className="col">
-            <input type="range" className="form-range" min={-20} max={20} step={1}
-              value={powerMin}
-              onInput={e => {
-                const v = Number((e.target as HTMLInputElement).value)
-                setPowerMin(v)
-                setPowerLabel(`${v} dB`)
-              }}
-              onChange={e => {
-                const v = Number(e.target.value)
-                setFilters(buildFilters({ powerMin: v }))
-              }} />
-          </div>
-          <div className="col-auto">
-            <span className="slider-label">{powerLabel}</span>
-          </div>
-
-          <div className="col-auto ms-3">
             <span className="slider-label">Activity Threshold (dBFS):</span>
           </div>
           <div className="col">
-            <input type="range" className="form-range" min={-20} max={20} step={1}
-              value={threshold}
+            <input type="range" className="form-range" min={minPower} max={20} step={1}
+              value={Math.max(threshold, minPower)}
               onChange={e => setThreshold(Number(e.target.value))} />
           </div>
           <div className="col-auto">
