@@ -118,6 +118,29 @@ def seed_bands_from_yaml(config_path: Path = BANDS_CONFIG) -> None:
         sess.commit()
 
 
+def _seed_one_band(_conn, b: dict) -> bool:
+    """Insert one band from a seed dict if it doesn't already exist.
+
+    *_conn* is accepted for API compatibility with legacy callers but is ignored
+    — the function uses the module-level SQLAlchemy session.
+    Returns True if the band was inserted, False if it already existed.
+    """
+    if get_band(str(b["id"])) is not None:
+        return False
+    create_band(
+        band_id=str(b["id"]),
+        name=str(b["name"]),
+        freq_start=str(b["freq_start"]),
+        freq_end=str(b["freq_end"]),
+        freq_step=str(b["freq_step"]),
+        interval_s=int(b.get("interval_s", 10)),
+        min_power=float(b.get("min_power", 2.0)),
+        device_index=int(b.get("device_index", 0)),
+        is_active=bool(b.get("is_active", False)),
+    )
+    return True
+
+
 # ── Band CRUD ─────────────────────────────────────────────────────────────────
 
 def _to_dict(b: Band) -> dict:
@@ -146,7 +169,7 @@ def get_band(band_id: str) -> dict | None:
 
 
 def create_band(band_id, name, freq_start, freq_end, freq_step,
-                interval_s, min_power, device_index, is_active) -> None:
+                interval_s, min_power, device_index, is_active=False) -> None:
     with _session() as sess:
         if sess.get(Band, band_id):
             raise ValueError(f"Band {band_id!r} already exists")
@@ -160,7 +183,7 @@ def create_band(band_id, name, freq_start, freq_end, freq_step,
 
 
 def update_band(band_id, name, freq_start, freq_end, freq_step,
-                interval_s, min_power, device_index, is_active) -> None:
+                interval_s, min_power, device_index, is_active=False) -> None:
     with _session() as sess:
         b = sess.get(Band, band_id)
         if not b:
@@ -217,6 +240,8 @@ def _apply_filters(q, filters: dict | None):
         q = q.filter(BandMeasurement.timestamp >= filters["time_min"])
     if "time_max" in filters:
         q = q.filter(BandMeasurement.timestamp <= filters["time_max"])
+    if "power_min" in filters:
+        q = q.filter(BandMeasurement.power_db >= filters["power_min"])
     return q
 
 

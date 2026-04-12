@@ -82,6 +82,12 @@ def _parse_filters(args) -> dict:
         val = args.get(key)
         if val:
             filters[key] = val
+    val = args.get("power_min")
+    if val is not None and val != "":
+        try:
+            filters["power_min"] = float(val)
+        except ValueError:
+            pass
     return filters
 
 

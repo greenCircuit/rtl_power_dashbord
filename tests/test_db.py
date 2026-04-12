@@ -1,12 +1,10 @@
-"""Unit tests for app/data/db.py"""
+"""Unit tests for app/data/db.py — SQLAlchemy implementation"""
 
-import sqlite3
 import textwrap
 import pytest
 
 import app.data.db as db_module
 from app.data.db import (
-    _filter_clauses,
     _seed_one_band,
     create_band,
     delete_band,
@@ -42,9 +40,9 @@ def _create(overrides=None):
 # ── init_db ───────────────────────────────────────────────────────────────────
 
 def test_init_db_creates_bands_table(tmp_db):
-    conn = sqlite3.connect(str(tmp_db))
-    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-    conn.close()
+    from sqlalchemy import inspect
+    inspector = inspect(db_module.get_engine())
+    tables = set(inspector.get_table_names())
     assert "bands" in tables
     assert "band_measurements" in tables
 
@@ -110,15 +108,11 @@ def test_delete_band_removes_band(tmp_db):
 
 def test_delete_band_removes_measurements(tmp_db):
     _create()
-    conn = sqlite3.connect(str(tmp_db))
-    conn.execute("PRAGMA journal_mode=WAL")
-    insert_band_measurements(conn, "b1", [("2024-01-01 00:00:00", 144.5, -60.0)])
-    conn.commit()
-    conn.close()
+    with db_module.get_engine().connect() as conn:
+        insert_band_measurements(conn, "b1", [("2024-01-01 00:00:00", 144.5, -60.0)])
+        conn.commit()
     delete_band("b1")
-    conn2 = sqlite3.connect(str(tmp_db))
-    rows = conn2.execute("SELECT * FROM band_measurements WHERE band_id='b1'").fetchall()
-    conn2.close()
+    rows = db_module.fetch_band_measurements("b1")
     assert rows == []
 
 
@@ -126,66 +120,16 @@ def test_delete_band_removes_measurements(tmp_db):
 
 def test_insert_band_measurements(tmp_db):
     _create()
-    conn = sqlite3.connect(str(tmp_db))
-    conn.execute("PRAGMA journal_mode=WAL")
     measurements = [
         ("2024-01-01 12:00:00", 144.0, -55.0),
         ("2024-01-01 12:00:00", 144.5, -60.0),
         ("2024-01-01 12:00:00", 145.0, -65.0),
     ]
-    insert_band_measurements(conn, "b1", measurements)
-    conn.commit()
-    rows = conn.execute("SELECT * FROM band_measurements WHERE band_id='b1'").fetchall()
-    conn.close()
+    with db_module.get_engine().connect() as conn:
+        insert_band_measurements(conn, "b1", measurements)
+        conn.commit()
+    rows = db_module.fetch_band_measurements("b1")
     assert len(rows) == 3
-
-
-# ── _filter_clauses ───────────────────────────────────────────────────────────
-
-def test_filter_clauses_empty():
-    sql, params = _filter_clauses(None)
-    assert sql == ""
-    assert params == []
-
-
-def test_filter_clauses_empty_dict():
-    sql, params = _filter_clauses({})
-    assert sql == ""
-    assert params == []
-
-
-def test_filter_clauses_freq_min():
-    sql, params = _filter_clauses({"freq_min": 144.0})
-    assert "frequency_mhz >= ?" in sql
-    assert params == [144.0]
-
-
-def test_filter_clauses_freq_max():
-    sql, params = _filter_clauses({"freq_max": 146.0})
-    assert "frequency_mhz <= ?" in sql
-    assert params == [146.0]
-
-
-def test_filter_clauses_time_range():
-    sql, params = _filter_clauses({"time_min": "2024-01-01", "time_max": "2024-01-02"})
-    assert "timestamp >= ?" in sql
-    assert "timestamp <= ?" in sql
-    assert "2024-01-01" in params
-    assert "2024-01-02" in params
-
-
-def test_filter_clauses_power_min():
-    sql, params = _filter_clauses({"power_min": -80.0})
-    assert "power_db >= ?" in sql
-    assert params == [-80.0]
-
-
-def test_filter_clauses_multiple_joined_with_and():
-    sql, params = _filter_clauses({"freq_min": 144.0, "freq_max": 146.0})
-    assert sql.startswith(" AND ")
-    assert "frequency_mhz >= ?" in sql
-    assert "frequency_mhz <= ?" in sql
-    assert len(params) == 2
 
 
 # ── time filter format bug regression ────────────────────────────────────────
@@ -202,15 +146,13 @@ def test_filter_clauses_multiple_joined_with_and():
 def test_t_separator_excludes_all_rows_demonstrating_the_bug(tmp_db):
     """T-separated filter should fail to match space-separated DB timestamps."""
     _create()
-    conn = sqlite3.connect(str(tmp_db))
-    conn.execute("PRAGMA journal_mode=WAL")
-    insert_band_measurements(conn, "b1", [
-        ("2026-04-03 08:00:00", 144.0, -55.0),
-        ("2026-04-03 10:00:00", 144.0, -55.0),
-        ("2026-04-03 12:00:00", 144.0, -55.0),
-    ])
-    conn.commit()
-    conn.close()
+    with db_module.get_engine().connect() as conn:
+        insert_band_measurements(conn, "b1", [
+            ("2026-04-03 08:00:00", 144.0, -55.0),
+            ("2026-04-03 10:00:00", 144.0, -55.0),
+            ("2026-04-03 12:00:00", 144.0, -55.0),
+        ])
+        conn.commit()
     # T-separator as produced by datetime-local input — this was the bug
     rows = db_module.fetch_band_measurements("b1", {"time_min": "2026-04-03T00:00"})
     assert rows == [], (
@@ -222,15 +164,13 @@ def test_t_separator_excludes_all_rows_demonstrating_the_bug(tmp_db):
 def test_space_separator_matches_db_timestamps(tmp_db):
     """Space-separated filter (after .replace('T', ' ') fix) matches correctly."""
     _create()
-    conn = sqlite3.connect(str(tmp_db))
-    conn.execute("PRAGMA journal_mode=WAL")
-    insert_band_measurements(conn, "b1", [
-        ("2026-04-03 08:00:00", 144.0, -55.0),
-        ("2026-04-03 10:00:00", 144.0, -55.0),
-        ("2026-04-03 12:00:00", 144.0, -55.0),
-    ])
-    conn.commit()
-    conn.close()
+    with db_module.get_engine().connect() as conn:
+        insert_band_measurements(conn, "b1", [
+            ("2026-04-03 08:00:00", 144.0, -55.0),
+            ("2026-04-03 10:00:00", 144.0, -55.0),
+            ("2026-04-03 12:00:00", 144.0, -55.0),
+        ])
+        conn.commit()
     # Space-separator as produced by the fix: .replace("T", " ")
     rows = db_module.fetch_band_measurements("b1", {"time_min": "2026-04-03 00:00"})
     assert len(rows) == 3
@@ -239,15 +179,13 @@ def test_space_separator_matches_db_timestamps(tmp_db):
 def test_time_filter_excludes_rows_outside_range(tmp_db):
     """Time filter correctly excludes rows outside the requested window."""
     _create()
-    conn = sqlite3.connect(str(tmp_db))
-    conn.execute("PRAGMA journal_mode=WAL")
-    insert_band_measurements(conn, "b1", [
-        ("2026-04-03 07:00:00", 144.0, -55.0),   # before window
-        ("2026-04-03 10:00:00", 144.0, -55.0),   # inside window
-        ("2026-04-03 23:00:00", 144.0, -55.0),   # after window
-    ])
-    conn.commit()
-    conn.close()
+    with db_module.get_engine().connect() as conn:
+        insert_band_measurements(conn, "b1", [
+            ("2026-04-03 07:00:00", 144.0, -55.0),   # before window
+            ("2026-04-03 10:00:00", 144.0, -55.0),   # inside window
+            ("2026-04-03 23:00:00", 144.0, -55.0),   # after window
+        ])
+        conn.commit()
     rows = db_module.fetch_band_measurements("b1", {
         "time_min": "2026-04-03 08:00",
         "time_max": "2026-04-03 12:00",
@@ -259,28 +197,18 @@ def test_time_filter_excludes_rows_outside_range(tmp_db):
 # ── _seed_one_band ────────────────────────────────────────────────────────────
 
 def test_seed_one_band_inserts(tmp_db):
-    conn = sqlite3.connect(str(tmp_db))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.row_factory = sqlite3.Row
     b = dict(id="gmrs", name="GMRS", freq_start="462.5M",
              freq_end="462.8M", freq_step="12.5k")
-    inserted = _seed_one_band(conn, b)
-    conn.commit()
-    conn.close()
+    inserted = _seed_one_band(None, b)
     assert inserted is True
     assert get_band("gmrs") is not None
 
 
 def test_seed_one_band_skips_duplicate(tmp_db):
     _create({"band_id": "gmrs", "name": "GMRS"})
-    conn = sqlite3.connect(str(tmp_db))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.row_factory = sqlite3.Row
     b = dict(id="gmrs", name="GMRS", freq_start="462.5M",
              freq_end="462.8M", freq_step="12.5k")
-    inserted = _seed_one_band(conn, b)
-    conn.commit()
-    conn.close()
+    inserted = _seed_one_band(None, b)
     assert inserted is False
 
 
