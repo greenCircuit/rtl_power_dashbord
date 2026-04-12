@@ -13,6 +13,7 @@ clean_up:
   interval: "7d"          # keep data worth of 7 days
   db_max_size_mb: "1024"  # maximum size of database allowed
 
+DEMO_MODE: false
 bands:
   - id: gmrs
     name: GMRS
