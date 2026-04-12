@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useStore } from './store'
 import { api } from './api'
 import BandTable from './components/BandTable'
@@ -10,14 +10,17 @@ import SpectrumChart from './components/charts/SpectrumChart'
 import ActivityChart from './components/charts/ActivityChart'
 import TodHeatmap from './components/charts/TodHeatmap'
 import DurationChart from './components/charts/DurationChart'
+import StatusModal from './components/StatusModal'
+import ChartFullscreen from './components/ChartFullscreen'
 
 export default function App() {
-  const bands      = useStore(s => s.bands)
-  const bandId     = useStore(s => s.bandId)
-  const setBandId  = useStore(s => s.setBandId)
-  const setDevices = useStore(s => s.setDevices)
-  const tick       = useStore(s => s.tick)
+  const bands        = useStore(s => s.bands)
+  const bandId       = useStore(s => s.bandId)
+  const setBandId    = useStore(s => s.setBandId)
+  const setDevices   = useStore(s => s.setDevices)
+  const tick         = useStore(s => s.tick)
   const analysisTick = useStore(s => s.analysisTick)
+  const [statusOpen, setStatusOpen] = useState(false)
 
   // Load devices once on mount
   useEffect(() => {
@@ -37,11 +40,22 @@ export default function App() {
   return (
     <div className="container-fluid py-3">
       {/* Header */}
-      <div className="row mb-3">
+      <div className="row mb-3 align-items-center">
         <div className="col text-center">
           <h4 className="mb-0 fw-bold">RTL Power Dashboard</h4>
         </div>
+        <div className="col-auto position-absolute end-0 pe-3">
+          <button
+            className="btn btn-outline-secondary btn-sm"
+            title="Backend status"
+            onClick={() => setStatusOpen(true)}
+          >
+            ⚙ Status
+          </button>
+        </div>
       </div>
+
+      <StatusModal open={statusOpen} onClose={() => setStatusOpen(false)} />
 
       {/* Band management */}
       <BandTable />
@@ -73,18 +87,18 @@ export default function App() {
       {/* Analysis charts: ToD occupancy + Signal duration */}
       <div className="row mb-3">
         <div className="col-md-6 mb-2">
-          <TodHeatmap />
+          <ChartFullscreen><TodHeatmap /></ChartFullscreen>
         </div>
         <div className="col-md-6 mb-2">
-          <DurationChart />
+          <ChartFullscreen><DurationChart /></ChartFullscreen>
         </div>
       </div>
 
       {/* Heatmap (includes colorbar) */}
-      <Heatmap />
+      <ChartFullscreen><Heatmap /></ChartFullscreen>
 
       {/* Timeseries (appears after clicking heatmap) */}
-      <TimeseriesChart />
+      <ChartFullscreen><TimeseriesChart /></ChartFullscreen>
 
       {/* Spectrum + Activity */}
       <div className="row mb-1">
@@ -94,10 +108,10 @@ export default function App() {
       </div>
       <div className="row">
         <div className="col-md-6 mb-3">
-          <SpectrumChart />
+          <ChartFullscreen><SpectrumChart /></ChartFullscreen>
         </div>
         <div className="col-md-6 mb-3">
-          <ActivityChart />
+          <ChartFullscreen><ActivityChart /></ChartFullscreen>
         </div>
       </div>
     </div>

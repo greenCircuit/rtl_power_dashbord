@@ -47,7 +47,7 @@ export default function ActivityChart() {
           tooltip: {
             callbacks: {
               title: items => `${Number(labels[items[0].dataIndex]).toFixed(3)} MHz`,
-              label:  ctx  => `Active: ${ctx.parsed.y.toFixed(1)}%`,
+              label:  ctx  => `Active: ${(ctx.parsed.y ?? 0).toFixed(1)}%`,
             },
           },
         },

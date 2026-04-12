@@ -182,11 +182,14 @@ class RTLPowerCapture:
                     continue
 
                 per_band[band_id] = per_band.get(band_id, 0) + 1
-                peak = max(db_values)
-                if peak < min_power:
+                if max(db_values) < min_power:
                     continue
 
                 rows = _build_measurement_rows(date_str, time_str, hz_low, hz_high, db_values)
+                # Drop individual readings below min_power — the sweep-level check
+                # above only gates whole lines; without this, quiet frequencies
+                # within an active sweep still get stored with negative values.
+                rows = [(ts, freq, pwr) for ts, freq, pwr in rows if pwr >= min_power]
                 pending.setdefault(band_id, []).extend(rows)
         finally:
             if pending:

@@ -37,7 +37,7 @@ export default function TimeseriesChart() {
             color: '#ccc',
           },
           tooltip: {
-            callbacks: { label: ctx => `${ctx.parsed.y.toFixed(1)} dBFS` },
+            callbacks: { label: ctx => `${(ctx.parsed.y ?? 0).toFixed(1)} dBFS` },
           },
         },
       },

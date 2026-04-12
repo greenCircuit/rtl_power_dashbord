@@ -1,9 +1,7 @@
-import type { ChartOptions } from 'chart.js'
-
-export const BASE_OPTS: ChartOptions = {
+export const BASE_OPTS = {
   responsive: true,
   maintainAspectRatio: false,
-  animation: false,
+  animation: false as const,
   plugins: {
     legend: { labels: { color: '#ccc', boxWidth: 12 } },
   },

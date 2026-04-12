@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import { useStore } from '../store'
 import type { Filters } from '../api'
 
@@ -22,15 +22,6 @@ export default function FilterPanel() {
   const threshold    = useStore(s => s.threshold)
   const timeRange    = useStore(s => s.timeRange)
   const setTimeRange = useStore(s => s.setTimeRange)
-  const bands        = useStore(s => s.bands)
-  const bandId       = useStore(s => s.bandId)
-
-  const minPower = bands.find(b => b.id === bandId)?.min_power ?? -20
-
-  // Clamp threshold up to band's min_power when band changes
-  useEffect(() => {
-    if (threshold < minPower) setThreshold(minPower)
-  }, [bandId])
 
   const [freqMin,   setFreqMin]   = useState('')
   const [freqMax,   setFreqMax]   = useState('')
@@ -137,8 +128,8 @@ export default function FilterPanel() {
             <span className="slider-label">Activity Threshold (dBFS):</span>
           </div>
           <div className="col">
-            <input type="range" className="form-range" min={minPower} max={20} step={1}
-              value={Math.max(threshold, minPower)}
+            <input type="range" className="form-range" min={-10} max={10} step={1}
+              value={threshold}
               onChange={e => setThreshold(Number(e.target.value))} />
           </div>
           <div className="col-auto">

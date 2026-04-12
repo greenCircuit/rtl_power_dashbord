@@ -10,8 +10,13 @@
 clean_up:
   enabled: true
   # rules for cleaning data, they are or statement
-  interval: "7d"          # keep data worth of 7 days
-  db_max_size_mb: "1024"  # maximum size of database allowed
+  interval_mins: 30     # how often to try to clean up data
+  db_max_size_mb: 1024  # maximum size of database allowed
+  max_time_hrs: 72      # how long to keep data
+
+
+logs:
+  enabled: false  # write logs to a life + std out,
 
 charts:
   main_poll_interval_s: 30        # most used charts interval

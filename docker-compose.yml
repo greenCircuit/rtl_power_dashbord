@@ -1,8 +1,7 @@
 services:
   dashboard:
-    build: .
-    ports:
-      - "8050:8050"
+    image: localhost/rtl-app:latest
+    network_mode: host
     volumes:
       # Persists the SQLite database, CSV captures, and log file on the host
       - ./data:/app/data
@@ -14,6 +13,6 @@ services:
       PORT: "8050"
       FLASK_DEBUG: "false"
       DATA_DIR: "/app/data"
-      BANDS_CONFIG: "/app/bands.yaml"
+      BANDS_CONFIG: "/app/config.yaml"
       LOG_PATH: "/app/data/app.log"
     restart: unless-stopped

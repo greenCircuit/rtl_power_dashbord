@@ -138,27 +138,24 @@ def get_band_tod_activity(band_id: str, threshold_db: float,
     """Return time-of-day occupancy as a 7×24 grid.
 
     Frontend expects ``{ z: number[][], x: number[], y: string[] }`` where
-    z[day][hour] is activity percentage.  Since per-day-of-week data needs
-    more rows than we typically expose here, we broadcast the hourly average
-    across all 7 day rows so the heatmap always has the right shape.
+    z[day][hour] is activity percentage (0–100).
+    Days with no data stay at 0 so the grid is always fully populated.
     """
     rows = db.fetch_band_tod_activity(band_id, threshold_db, filters)
     if not rows:
         return None
 
-    hourly = [0.0] * 24
+    # Build 7×24 grid indexed by [dow][hour]
+    grid = [[0.0] * 24 for _ in range(7)]
     for r in rows:
-        h = r["hour"]
-        if 0 <= h <= 23 and r["total"]:
-            hourly[h] = round(r["active"] / r["total"] * 100, 2)
+        d, h = r["dow"], r["hour"]
+        if 0 <= d <= 6 and 0 <= h <= 23 and r["total"]:
+            grid[d][h] = round(r["active"] / r["total"] * 100, 2)
 
-    days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-    # Broadcast hourly average to all 7 day rows
-    z = [hourly[:] for _ in range(7)]
     return {
-        "z": z,
+        "z": grid,
         "x": list(range(24)),
-        "y": days,
+        "y": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
     }
 
 

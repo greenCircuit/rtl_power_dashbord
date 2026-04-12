@@ -7,6 +7,7 @@ from flask import Flask, send_from_directory
 
 from app.config import configure_logging, BANDS_CONFIG, DEMO_MODE
 from app.data.db import init_db, seed_bands_from_yaml, list_bands
+from app.cleanup import start_cleanup_scheduler
 
 UI_DIST = Path(__file__).parent.parent / 'ui' / 'dist'
 
@@ -48,6 +49,9 @@ def create_app() -> Flask:
                 log.info("Auto-started %d band(s): %s", len(active_bands), names)
             except Exception as exc:
                 log.warning("Failed to auto-start bands: %s", exc)
+
+    if should_start:
+        start_cleanup_scheduler()
 
     log.info("Startup complete")
 

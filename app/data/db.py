@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 from sqlalchemy import (
     Boolean, Column, Float, Index, Integer, String, Text,
-    create_engine, event, func, text,
+    case, create_engine, event, func, text,
 )
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -250,11 +250,12 @@ def fetch_band_activity(band_id: str, threshold_db: float,
                         filters: dict | None = None) -> list[dict]:
     """Return per-frequency activity counts: [{frequency_mhz, active, total}]."""
     with _session() as sess:
+        active_expr = func.sum(
+            case((BandMeasurement.power_db >= threshold_db, 1), else_=0)
+        )
         q = sess.query(
             BandMeasurement.frequency_mhz,
-            func.sum(
-                func.cast(BandMeasurement.power_db >= threshold_db, Integer)
-            ).label("active"),
+            active_expr.label("active"),
             func.count(BandMeasurement.id).label("total"),
         ).filter(BandMeasurement.band_id == band_id)
         q = _apply_filters(q, filters)
@@ -299,17 +300,18 @@ def fetch_band_latest_activity(band_id: str, threshold_db: float) -> dict | None
         if not last_ts:
             return None
         # Subquery: rows within 1 hour of the latest timestamp
+        cutoff = sess.query(
+            func.datetime(func.max(BandMeasurement.timestamp), "-1 hour")
+        ).filter(BandMeasurement.band_id == band_id).scalar_subquery()
+        active_expr = func.sum(
+            case((BandMeasurement.power_db >= threshold_db, 1), else_=0)
+        )
         q = sess.query(
-            func.sum(
-                func.cast(BandMeasurement.power_db >= threshold_db, Integer)
-            ).label("active"),
+            active_expr.label("active"),
             func.count(BandMeasurement.id).label("total"),
         ).filter(
             BandMeasurement.band_id == band_id,
-            BandMeasurement.timestamp >= text(
-                f"(SELECT datetime(MAX(timestamp), '-1 hour') "
-                f"FROM band_measurements WHERE band_id = '{band_id}')"
-            ),
+            BandMeasurement.timestamp >= cutoff,
         )
         row = q.first()
         return {
@@ -321,20 +323,28 @@ def fetch_band_latest_activity(band_id: str, threshold_db: float) -> dict | None
 
 def fetch_band_tod_activity(band_id: str, threshold_db: float,
                             filters: dict | None = None) -> list[dict]:
-    """Return per-hour-of-day activity [{hour, active, total}]."""
+    """Return per-(day-of-week, hour) activity [{dow, hour, active, total}].
+
+    dow: 0=Sunday … 6=Saturday  (SQLite strftime('%w')).
+    """
     with _session() as sess:
-        # SQLite strftime('%H', timestamp) extracts hour (00-23)
-        hour_expr = func.cast(func.strftime("%H", BandMeasurement.timestamp), Integer)
+        dow_expr    = func.cast(func.strftime("%w", BandMeasurement.timestamp), Integer)
+        hour_expr   = func.cast(func.strftime("%H", BandMeasurement.timestamp), Integer)
+        active_expr = func.sum(
+            case((BandMeasurement.power_db >= threshold_db, 1), else_=0)
+        )
         q = sess.query(
+            dow_expr.label("dow"),
             hour_expr.label("hour"),
-            func.sum(
-                func.cast(BandMeasurement.power_db >= threshold_db, Integer)
-            ).label("active"),
+            active_expr.label("active"),
             func.count(BandMeasurement.id).label("total"),
         ).filter(BandMeasurement.band_id == band_id)
         q = _apply_filters(q, filters)
-        q = q.group_by(hour_expr).order_by(hour_expr)
-        return [{"hour": r.hour, "active": r.active, "total": r.total} for r in q.all()]
+        q = q.group_by(dow_expr, hour_expr).order_by(dow_expr, hour_expr)
+        return [
+            {"dow": r.dow, "hour": r.hour, "active": r.active, "total": r.total}
+            for r in q.all()
+        ]
 
 
 def fetch_band_activity_timeline(band_id: str, threshold_db: float,
@@ -342,30 +352,91 @@ def fetch_band_activity_timeline(band_id: str, threshold_db: float,
                                  bucket_minutes: int = 15) -> list[dict]:
     """Return time-bucketed activity [{bucket, active, total}]."""
     with _session() as sess:
-        # Round timestamp to bucket_minutes intervals using SQLite datetime math
-        bucket_expr = func.strftime(
-            "%Y-%m-%dT%H:%M",
-            func.datetime(
-                BandMeasurement.timestamp,
-                text(f"'-{bucket_minutes} minutes'"),
-                text(f"'+{bucket_minutes} minutes'"),
-            ),
-        )
-        # Simpler: truncate by dividing epoch seconds
-        bucket_expr = func.strftime(
-            "%Y-%m-%dT%H:00",
-            BandMeasurement.timestamp,
+        # Truncate timestamp to the hour for bucketing
+        bucket_expr = func.strftime("%Y-%m-%dT%H:00", BandMeasurement.timestamp)
+        active_expr = func.sum(
+            case((BandMeasurement.power_db >= threshold_db, 1), else_=0)
         )
         q = sess.query(
             bucket_expr.label("bucket"),
-            func.sum(
-                func.cast(BandMeasurement.power_db >= threshold_db, Integer)
-            ).label("active"),
+            active_expr.label("active"),
             func.count(BandMeasurement.id).label("total"),
         ).filter(BandMeasurement.band_id == band_id)
         q = _apply_filters(q, filters)
         q = q.group_by(bucket_expr).order_by(bucket_expr)
         return [{"bucket": r.bucket, "active": r.active, "total": r.total} for r in q.all()]
+
+
+def cleanup_old_data(max_time_hrs: int, db_max_size_mb: int) -> dict:
+    """Delete measurements that are too old OR trim DB when it exceeds the size cap.
+
+    Rules are OR — either condition triggers a delete pass.
+    Returns a summary dict with rows deleted and final DB size.
+    """
+    deleted_age  = 0
+    deleted_size = 0
+
+    with _session() as sess:
+        # ── Rule 1: delete rows older than max_time_hrs ───────────────────────
+        cutoff = func.datetime("now", f"-{max_time_hrs} hours")
+        deleted_age = (
+            sess.query(BandMeasurement)
+            .filter(BandMeasurement.timestamp < cutoff)
+            .delete(synchronize_session=False)
+        )
+        sess.commit()
+
+        # ── Rule 2: if DB is still over the size cap, drop oldest rows ────────
+        if DB_PATH.exists():
+            size_mb = DB_PATH.stat().st_size / 1_048_576
+            if size_mb > db_max_size_mb:
+                # Delete in chunks of 50k oldest rows until under the limit
+                while size_mb > db_max_size_mb:
+                    subq = (
+                        sess.query(BandMeasurement.id)
+                        .order_by(BandMeasurement.timestamp)
+                        .limit(50_000)
+                        .subquery()
+                    )
+                    n = (
+                        sess.query(BandMeasurement)
+                        .filter(BandMeasurement.id.in_(subq))
+                        .delete(synchronize_session=False)
+                    )
+                    sess.commit()
+                    deleted_size += n
+                    if n == 0:
+                        break
+                    size_mb = DB_PATH.stat().st_size / 1_048_576
+
+    # Reclaim space after bulk deletes
+    with get_engine().connect() as conn:
+        conn.execute(text("VACUUM"))
+
+    final_mb = round(DB_PATH.stat().st_size / 1_048_576, 2) if DB_PATH.exists() else 0.0
+    return {
+        "deleted_by_age":  deleted_age,
+        "deleted_by_size": deleted_size,
+        "db_size_mb":      final_mb,
+    }
+
+
+def fetch_db_status() -> dict:
+    """Return DB file size and per-band measurement counts / last capture time."""
+    size_mb = round(DB_PATH.stat().st_size / 1_048_576, 2) if DB_PATH.exists() else 0.0
+    with _session() as sess:
+        rows = sess.query(
+            BandMeasurement.band_id,
+            func.count(BandMeasurement.id).label("count"),
+            func.max(BandMeasurement.timestamp).label("last_seen"),
+        ).group_by(BandMeasurement.band_id).all()
+    return {
+        "db_size_mb": size_mb,
+        "bands": [
+            {"band_id": r.band_id, "count": r.count, "last_seen": r.last_seen}
+            for r in rows
+        ],
+    }
 
 
 def fetch_band_signal_raw(band_id: str, threshold_db: float,

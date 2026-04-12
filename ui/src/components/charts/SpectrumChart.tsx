@@ -51,7 +51,7 @@ export default function SpectrumChart() {
           tooltip: {
             callbacks: {
               title: items => `${Number(labels[items[0].dataIndex]).toFixed(3)} MHz`,
-              label:  ctx  => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} dBFS`,
+              label:  ctx  => `${ctx.dataset.label}: ${(ctx.parsed.y ?? 0).toFixed(1)} dBFS`,
             },
           },
         },

@@ -81,6 +81,15 @@ export interface DurationData {
   max_s: number
 }
 
+export interface BackendStatus {
+  status: string
+  demo_mode: boolean
+  db_path: string
+  db_size_mb: number
+  total_measurements: number
+  bands: { band_id: string; name: string; count: number; last_seen: string | null }[]
+}
+
 export interface BandBody {
   name: string
   freq_start: string
@@ -164,4 +173,7 @@ export const api = {
 
   fetchDurations: (id: string, qs: string) =>
     apiFetch<DurationData>(`/api/bands/${id}/signal-durations${qs}`),
+
+  fetchStatus: () =>
+    apiFetch<BackendStatus>('/api/status'),
 }

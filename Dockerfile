@@ -1,3 +1,14 @@
+# ── Stage 1: build React frontend ────────────────────────────────────────────
+FROM node:22-slim AS ui-builder
+
+WORKDIR /ui
+
+COPY ui/ ./
+RUN npm i
+RUN npm run build
+
+
+# ── Stage 2: Python backend ───────────────────────────────────────────────────
 FROM python:3.13-slim
 
 # rtl-sdr provides rtl_power and the kernel USB driver bindings
@@ -8,22 +19,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install Python dependencies first (layer-cached before source copy)
+# Install Python dependencies (layer-cached before source copy)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application source (see .dockerignore for exclusions)
-COPY . .
+# Copy application source
+COPY app/     ./app/
+COPY run.py   .
+COPY config.yaml .
+
+# Copy built frontend from stage 1
+COPY --from=ui-builder /ui/dist ./ui/dist
 
 # Runtime defaults — override in docker-compose or with -e flags
 ENV DATA_DIR=/app/data \
-    BANDS_CONFIG=/app/bands.yaml \
+    BANDS_CONFIG=/app/config.yaml \
     LOG_PATH=/app/data/app.log \
     PORT=8050 \
     FLASK_DEBUG=false
-
-# /app/data holds the SQLite DB, CSV captures, and log file
-VOLUME ["/app/data"]
 
 EXPOSE 8050
 
