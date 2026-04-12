@@ -5,7 +5,7 @@ services:
     volumes:
       # Persists the SQLite database, CSV captures, and log file on the host
       - ./data:/app/data
-    # Pass all USB buses through so the RTL-SDR dongle is accessible
+    # Pass all USB buses through so the SDR dongle is accessible
     devices:
       - /dev/bus/usb:/dev/bus/usb
     environment:
