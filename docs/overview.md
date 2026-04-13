@@ -2,9 +2,9 @@
 
 ## Purpose
 
-RTL Power Dashboard is a self-hosted RF spectrum monitoring tool. It uses a cheap RTL-SDR USB dongle and the `rtl_power` command-line tool to continuously scan user-defined frequency bands, store the measurements in a local SQLite database, and present them as interactive charts in a web browser.
+RTL Power Dashboard is a self-hosted RF spectrum monitoring tool. It uses a USB SDR receiver and the `rtl_power` command-line tool to continuously scan user-defined frequency bands, store the measurements in a local SQLite database, and present them as interactive charts in a web browser.
 
-The primary use case is long-running, unattended monitoring — leaving the dongle running overnight and then exploring what was transmitting, when, and at what power level. It is not a real-time receiver or decoder; it is a spectrum occupancy recorder and visualiser.
+The primary use case is long-running, unattended monitoring — leaving the receiver running overnight and then exploring what was transmitting, when, and at what power level. It is not a real-time receiver or decoder; it is a spectrum occupancy recorder and visualiser.
 
 ---
 
@@ -12,7 +12,7 @@ The primary use case is long-running, unattended monitoring — leaving the dong
 
 - **Band capture** — for each configured band, `rtl_power` is invoked as a subprocess. It scans the frequency range at the configured step size on a repeating interval and emits CSV lines to stdout. The dashboard parses this stream and writes measurements into the database. Only individual readings at or above the band's `min_power` are stored.
 
-- **Multi-band scheduling** — an RTL-SDR device can only scan one range at a time. When multiple bands are assigned to the same device, the manager cycles through them: band A runs for its configured interval, then band B, then band C. Each band is served; it just scans every `(n_bands × interval_s)` seconds instead of every `interval_s`.
+- **Multi-band scheduling** — a single SDR device can only scan one range at a time. When multiple bands are assigned to the same device, the manager cycles through them: band A runs for its configured interval, then band B, then band C. Each band is served; it just scans every `(n_bands × interval_s)` seconds instead of every `interval_s`. Bands on different devices capture independently and simultaneously.
 
 - **Persistent storage** — all measurements are stored in a SQLite database (`data/rtl_power.db`) via SQLAlchemy. Data survives restarts and is pruned automatically by the cleanup scheduler.
 
@@ -25,7 +25,7 @@ The primary use case is long-running, unattended monitoring — leaving the dong
 ## Architecture
 
 ```
-RTL-SDR dongle
+USB SDR receiver
       │
       ▼
   rtl_power (subprocess)
@@ -54,11 +54,12 @@ RTL-SDR dongle
 |---|---|
 | `app/capture/rtl_power.py` | Spawns `rtl_power`, reads stdout line-by-line, filters per-reading by `min_power`, routes CSV rows to the correct band, batch-inserts via SQLAlchemy |
 | `app/capture/manager.py` | Tracks active bands per device, cycles them, manages `threading.Timer` scheduling |
-| `app/data/db.py` | SQLAlchemy ORM models, schema init, band CRUD, all measurement queries and aggregations |
+| `app/data/db.py` | SQLAlchemy ORM models, schema init, band CRUD, all measurement queries and aggregations. Heatmap queries auto-downsample in SQL when data exceeds 300 time buckets |
 | `app/data/parser.py` | Post-query processing — pivot tables (pandas), activity percentages, signal duration extraction, time-of-day grids |
-| `app/api/routes.py` | Flask blueprints — REST endpoints consumed by the React frontend |
+| `app/api/routes.py` | Flask blueprints — REST endpoints consumed by the React frontend. Device list is cached and included in the `/api/status` response |
 | `app/cleanup.py` | Background cleanup scheduler — reads config each cycle, deletes old rows and trims DB size |
 | `app/config.py` | Reads `config.yaml` and environment variables; exposes paths and cleanup/logging settings |
+| `ui/src/hooks/useChart.ts` | Shared React hook — creates a Chart.js instance once on first data, then updates it in-place on subsequent data changes to avoid expensive destroy/recreate cycles |
 | `ui/src/` | React + TypeScript SPA — Chart.js charts, canvas heatmap, band management UI, filter panel |
 | `config.yaml` | Main configuration — bands seed, cleanup policy, logging, chart poll intervals |
 
@@ -79,7 +80,7 @@ Each row is a named frequency range with capture parameters.
 | `freq_step` | TEXT | Resolution: `"12.5k"`, `"25k"`, `"100k"` |
 | `interval_s` | INTEGER | How long to scan this band per cycle (seconds) |
 | `min_power` | REAL | Individual readings below this value are discarded at ingest |
-| `device_index` | INTEGER | Which RTL-SDR dongle to use (0-indexed) |
+| `device_index` | INTEGER | Which SDR device to use (0-indexed) |
 | `is_active` | INTEGER | 1 = auto-start on server launch |
 
 ### `band_measurements` table

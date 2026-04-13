@@ -54,6 +54,26 @@ export interface SpectrumData {
   frequency_mhz: number[]
   mean_db: number[]
   peak_db: number[]
+  alltime_peak_db: (number | null)[]
+}
+
+export interface PowerHistogramData {
+  bins: number[]
+  counts: number[]
+  min_db: number
+  max_db: number
+  total: number
+}
+
+export interface TopChannelsData {
+  frequency_mhz: number[]
+  activity_pct: number[]
+  mean_db: number[]
+}
+
+export interface ActivityTrendData {
+  buckets: string[]
+  activity_pct: number[]
 }
 
 export interface ActivityData {
@@ -88,6 +108,7 @@ export interface BackendStatus {
   db_size_mb: number
   total_measurements: number
   bands: { band_id: string; name: string; count: number; last_seen: string | null }[]
+  devices: Device[]
 }
 
 export interface BandBody {
@@ -176,4 +197,13 @@ export const api = {
 
   fetchStatus: () =>
     apiFetch<BackendStatus>('/api/status'),
+
+  fetchPowerHistogram: (id: string, qs: string) =>
+    apiFetch<PowerHistogramData>(`/api/bands/${id}/power-histogram${qs}`),
+
+  fetchTopChannels: (id: string, qs: string) =>
+    apiFetch<TopChannelsData>(`/api/bands/${id}/top-channels${qs}`),
+
+  fetchActivityTrend: (id: string, qs: string) =>
+    apiFetch<ActivityTrendData>(`/api/bands/${id}/activity-trend${qs}`),
 }

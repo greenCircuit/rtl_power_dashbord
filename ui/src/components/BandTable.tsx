@@ -25,13 +25,15 @@ export default function BandTable() {
   }, [refreshTick])
 
   async function toggleBand(id: string, isRunning: boolean) {
+    // Optimistic update so the header status text changes immediately
+    setBands(bands.map(b => b.id === id ? { ...b, status: isRunning ? 'idle' : 'running' } : b))
     try {
       if (isRunning) await api.stopBand(id)
       else           await api.startBand(id)
     } catch (e) {
       console.warn('toggleBand:', e)
     }
-    tick()
+    tick() // Reconcile with real server state
   }
 
   async function deleteBand(id: string) {
@@ -87,7 +89,9 @@ export default function BandTable() {
                       <td>{b.min_power} dB</td>
                       <td>{b.device_name ?? `Device ${b.device_index}`}</td>
                       <td>
-                        <span className={`badge bg-${color}`}>{b.status}</span>
+                        <span className={`badge bg-${color}${isRunning ? ' fs-6 px-2 py-1' : ''}`}>
+                          {isRunning && '● '}{b.status}
+                        </span>
                       </td>
                       <td>
                         <div className="btn-group btn-group-sm">

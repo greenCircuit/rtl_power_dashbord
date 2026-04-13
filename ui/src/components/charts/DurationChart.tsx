@@ -1,8 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import { Chart } from 'chart.js'
 import { useStore } from '../../store'
 import { useDurations } from '../../hooks/useBandData'
+import { useChart } from '../../hooks/useChart'
 import { BASE_OPTS, darkScales } from '../../chartConfig'
+import type { DurationData } from '../../api'
 
 export default function DurationChart() {
   const bandId    = useStore(s => s.bandId)
@@ -10,16 +12,16 @@ export default function DurationChart() {
   const { data }  = useDurations()
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
-  useEffect(() => {
-    if (!data || !canvasRef.current) return
-    const labels = data.bins.map(v => v.toFixed(1))
-    const chart = new Chart(canvasRef.current, {
+  useChart(
+    data,
+    canvasRef,
+    (canvas, d) => new Chart(canvas, {
       type: 'bar',
       data: {
-        labels,
+        labels: d.bins.map(v => v.toFixed(1)),
         datasets: [{
           label: 'Count',
-          data: data.counts,
+          data: d.counts,
           backgroundColor: '#ab47bc',
           borderWidth: 0,
           barPercentage: 1.0,
@@ -34,7 +36,7 @@ export default function DurationChart() {
           legend: { display: false },
           title: {
             display: true,
-            text: `Signal Durations above ${threshold} dBFS (n=${data.total})`,
+            text: `Signal Durations above ${threshold} dBFS (n=${d.total})`,
             color: '#ccc',
           },
           tooltip: {
@@ -42,9 +44,13 @@ export default function DurationChart() {
           },
         },
       },
-    })
-    return () => chart.destroy()
-  }, [data])
+    }),
+    (chart, d) => {
+      chart.data.labels           = d.bins.map(v => v.toFixed(1))
+      chart.data.datasets[0].data = d.counts
+      chart.options.plugins!.title!.text = `Signal Durations above ${threshold} dBFS (n=${d.total})`
+    },
+  )
 
   let emptyMsg = 'No band selected'
   if (bandId && !data) emptyMsg = 'No transmissions detected above threshold'

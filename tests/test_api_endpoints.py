@@ -162,7 +162,7 @@ class TestSpectrum:
         _create_band()
         insert_measurements(BAND_ID, CLEAN_ROWS)
         data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/spectrum"))
-        assert set(data.keys()) == {"frequency_mhz", "mean_db", "peak_db"}
+        assert set(data.keys()) == {"frequency_mhz", "mean_db", "peak_db", "alltime_peak_db"}
 
     def test_arrays_same_length(self, flask_client):
         _create_band()

@@ -29,8 +29,8 @@ bands:
     freq_start: "462.5M"
     freq_end:   "462.8M"
     freq_step:  "25k"   
-    interval_s: 2
-    min_power: 1         # -100 will allow recording anything, but will fill database pretty quickly and make more unnecessary db load
+    interval_s: 5
+    min_power: -2         # -100 will allow recording anything, but will fill database pretty quickly and make more unnecessary db load
     device_index: 0
     is_active: true
 
@@ -39,8 +39,8 @@ bands:
     freq_start: "144M"
     freq_end:   "165M"
     freq_step:  "25k"
-    interval_s: 2
-    min_power: 1
+    interval_s: 5
+    min_power: -2
     device_index: 0
     is_active: true
 

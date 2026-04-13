@@ -3,6 +3,7 @@ SQLAlchemy database layer — band management and measurement queries.
 """
 
 import logging
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -245,16 +246,66 @@ def _apply_filters(q, filters: dict | None):
     return q
 
 
+_HEATMAP_MAX_SWEEPS = 300
+
+
 def fetch_band_measurements(band_id: str, filters: dict | None = None) -> list[tuple]:
-    """Return [(timestamp, frequency_mhz, power_db), ...]."""
+    """Return [(timestamp, frequency_mhz, power_db), ...].
+
+    If the filtered dataset has more than _HEATMAP_MAX_SWEEPS distinct
+    timestamps, rows are averaged into time buckets in SQL so the heatmap
+    builder receives at most _HEATMAP_MAX_SWEEPS time slots without pulling
+    all raw rows into Python.
+    """
     with _session() as sess:
+        # ── Step 1: cheap metadata scan ───────────────────────────────────────
+        meta_q = sess.query(
+            func.count(func.distinct(BandMeasurement.timestamp)).label("n_sweeps"),
+            func.min(BandMeasurement.timestamp).label("ts_min"),
+            func.max(BandMeasurement.timestamp).label("ts_max"),
+        ).filter(BandMeasurement.band_id == band_id)
+        meta_q = _apply_filters(meta_q, filters)
+        meta = meta_q.one()
+
+        n_sweeps = meta.n_sweeps or 0
+
+        # ── Step 2a: small dataset — return every raw row ─────────────────────
+        if n_sweeps <= _HEATMAP_MAX_SWEEPS:
+            q = sess.query(
+                BandMeasurement.timestamp,
+                BandMeasurement.frequency_mhz,
+                BandMeasurement.power_db,
+            ).filter(BandMeasurement.band_id == band_id)
+            q = _apply_filters(q, filters)
+            return q.order_by(BandMeasurement.timestamp).all()
+
+        # ── Step 2b: large dataset — aggregate into time buckets in SQL ───────
+        try:
+            ts_min = datetime.fromisoformat(str(meta.ts_min).replace(" ", "T"))
+            ts_max = datetime.fromisoformat(str(meta.ts_max).replace(" ", "T"))
+            total_s = max((ts_max - ts_min).total_seconds(), 1)
+        except (ValueError, TypeError):
+            total_s = n_sweeps  # fallback: treat each sweep as 1 second
+
+        bucket_s = max(int(total_s / _HEATMAP_MAX_SWEEPS), 1)
+
+        # Round each timestamp down to the nearest bucket boundary, then
+        # re-format as an ISO string so the parser sees the same type as raw.
+        bucket_expr = func.datetime(
+            (func.cast(func.strftime("%s", BandMeasurement.timestamp), Integer) / bucket_s)
+            * bucket_s,
+            "unixepoch",
+        )
+
         q = sess.query(
-            BandMeasurement.timestamp,
+            bucket_expr.label("timestamp"),
             BandMeasurement.frequency_mhz,
-            BandMeasurement.power_db,
+            func.avg(BandMeasurement.power_db).label("power_db"),
         ).filter(BandMeasurement.band_id == band_id)
         q = _apply_filters(q, filters)
-        return q.order_by(BandMeasurement.timestamp).all()
+        q = q.group_by(bucket_expr, BandMeasurement.frequency_mhz)
+        q = q.order_by(bucket_expr, BandMeasurement.frequency_mhz)
+        return q.all()
 
 
 def fetch_band_stats(band_id: str, filters: dict | None = None) -> list[dict]:
@@ -462,6 +513,113 @@ def fetch_db_status() -> dict:
             for r in rows
         ],
     }
+
+
+def fetch_band_alltime_peak(band_id: str, filters: dict | None = None) -> list[dict]:
+    """Max power per frequency using only freq filters (ignores time window).
+
+    Used to draw a persistent peak-hold line on the spectrum chart.
+    """
+    freq_filters = {k: v for k, v in (filters or {}).items()
+                    if k in ("freq_min", "freq_max")}
+    with _session() as sess:
+        q = sess.query(
+            BandMeasurement.frequency_mhz,
+            func.max(BandMeasurement.power_db).label("peak_db"),
+        ).filter(BandMeasurement.band_id == band_id)
+        if freq_filters:
+            q = _apply_filters(q, freq_filters)
+        q = q.group_by(BandMeasurement.frequency_mhz).order_by(BandMeasurement.frequency_mhz)
+        return [{"frequency_mhz": r.frequency_mhz, "peak_db": r.peak_db} for r in q.all()]
+
+
+def fetch_band_power_histogram(band_id: str, filters: dict | None = None) -> list[float]:
+    """Return all power_db values for the band (used to build a histogram)."""
+    with _session() as sess:
+        q = sess.query(BandMeasurement.power_db).filter(
+            BandMeasurement.band_id == band_id
+        )
+        q = _apply_filters(q, filters)
+        return [r[0] for r in q.all()]
+
+
+def fetch_band_top_channels(band_id: str, threshold_db: float,
+                            limit: int = 10,
+                            filters: dict | None = None) -> list[dict]:
+    """Return the N most active frequencies sorted by activity %.
+
+    [{frequency_mhz, active, total, mean_db}]
+    """
+    with _session() as sess:
+        active_expr = func.sum(
+            case((BandMeasurement.power_db >= threshold_db, 1), else_=0)
+        )
+        total_expr = func.count(BandMeasurement.id)
+        q = sess.query(
+            BandMeasurement.frequency_mhz,
+            active_expr.label("active"),
+            total_expr.label("total"),
+            func.avg(BandMeasurement.power_db).label("mean_db"),
+        ).filter(BandMeasurement.band_id == band_id)
+        q = _apply_filters(q, filters)
+        q = q.group_by(BandMeasurement.frequency_mhz)
+        # Float division for correct sort in SQLite
+        q = q.order_by((active_expr * 1.0 / total_expr).desc())
+        q = q.limit(limit)
+        return [
+            {"frequency_mhz": r.frequency_mhz, "active": r.active,
+             "total": r.total, "mean_db": r.mean_db}
+            for r in q.all()
+        ]
+
+
+# Supported granularity labels → bucket width in seconds.
+# Legacy "hour"/"day" strings are included for backwards compatibility.
+_GRANULARITY_SECONDS: dict[str, int] = {
+    "5m":   300,
+    "15m":  900,
+    "1h":   3600,
+    "6h":   21600,
+    "1d":   86400,
+    # legacy aliases
+    "hour": 3600,
+    "day":  86400,
+}
+
+
+def fetch_band_activity_trend(band_id: str, threshold_db: float,
+                              granularity: str = "1h",
+                              filters: dict | None = None) -> list[dict]:
+    """Return time-bucketed overall activity percentage.
+
+    *granularity* is one of: ``5m``, ``15m``, ``1h``, ``6h``, ``1d``
+    (or legacy ``hour`` / ``day``).
+
+    Uses Unix-epoch integer arithmetic so any bucket width is supported:
+    ``datetime(epoch - epoch % width, 'unixepoch')`` truncates to the
+    nearest multiple of *width* seconds.
+
+    Returns ``[{bucket, active, total}]``.
+    """
+    width = _GRANULARITY_SECONDS.get(granularity, 3600)
+    ts_epoch = func.strftime("%s", BandMeasurement.timestamp)
+    bucket_expr = func.datetime(
+        ts_epoch - ts_epoch % width,
+        "unixepoch",
+    )
+    active_expr = func.sum(
+        case((BandMeasurement.power_db >= threshold_db, 1), else_=0)
+    )
+    with _session() as sess:
+        q = sess.query(
+            bucket_expr.label("bucket"),
+            active_expr.label("active"),
+            func.count(BandMeasurement.id).label("total"),
+        ).filter(BandMeasurement.band_id == band_id)
+        q = _apply_filters(q, filters)
+        q = q.group_by(bucket_expr).order_by(bucket_expr)
+        return [{"bucket": r.bucket, "active": r.active, "total": r.total}
+                for r in q.all()]
 
 
 def fetch_band_signal_raw(band_id: str, threshold_db: float,

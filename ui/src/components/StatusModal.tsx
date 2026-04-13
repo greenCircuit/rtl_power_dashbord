@@ -2,6 +2,16 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { BackendStatus } from '../api'
 
+function timeAgo(ts: string | null): string {
+  if (!ts) return '—'
+  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000)
+  if (diff < 0)   return 'just now'
+  if (diff < 60)  return `${diff}s ago`
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
+}
+
 interface Props {
   open: boolean
   onClose: () => void
@@ -92,6 +102,29 @@ export default function StatusModal({ open, onClose }: Props) {
                     </div>
                   </div>
 
+                  {/* Available devices */}
+                  <h6 className="text-muted mb-2">Available devices</h6>
+                  {status.devices.length === 0 ? (
+                    <p className="text-muted small mb-3">No RTL-SDR devices detected.</p>
+                  ) : (
+                    <table className="table table-sm table-dark table-bordered mb-3">
+                      <thead>
+                        <tr>
+                          <th style={{ width: '4rem' }}>Index</th>
+                          <th>Name</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {status.devices.map(d => (
+                          <tr key={d.index}>
+                            <td className="text-center">{d.index}</td>
+                            <td>{d.name}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+
                   {/* Per-band breakdown */}
                   {status.bands.length > 0 && (
                     <>
@@ -102,6 +135,7 @@ export default function StatusModal({ open, onClose }: Props) {
                             <th>Band</th>
                             <th className="text-end">Measurements</th>
                             <th>Last capture</th>
+                            <th>Age</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -109,9 +143,8 @@ export default function StatusModal({ open, onClose }: Props) {
                             <tr key={b.band_id}>
                               <td>{b.name}</td>
                               <td className="text-end">{b.count.toLocaleString()}</td>
-                              <td className="text-muted small">
-                                {b.last_seen ?? '—'}
-                              </td>
+                              <td className="text-muted small">{b.last_seen ?? '—'}</td>
+                              <td className="text-info small">{timeAgo(b.last_seen)}</td>
                             </tr>
                           ))}
                         </tbody>

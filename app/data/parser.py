@@ -76,7 +76,12 @@ def get_band_stats(band_id: str, filters: dict | None = None) -> dict | None:
     rows = db.fetch_band_stats(band_id, filters)
     if not rows:
         return None
-    freqs, means, peaks = [], [], []
+    # All-time peak: same freq range but no time restriction — shows the
+    # highest power ever seen at each frequency as a reference line.
+    peak_rows = db.fetch_band_alltime_peak(band_id, filters)
+    peak_map  = {r["frequency_mhz"]: r["peak_db"] for r in peak_rows}
+
+    freqs, means, peaks, alltime = [], [], [], []
     for r in rows:
         f = _safe_float(r["frequency_mhz"])
         m = _safe_float(r["mean_db"])
@@ -86,9 +91,15 @@ def get_band_stats(band_id: str, filters: dict | None = None) -> dict | None:
         freqs.append(f)
         means.append(m)
         peaks.append(p)
+        alltime.append(_safe_float(peak_map.get(f)))
     if not freqs:
         return None
-    return {"frequency_mhz": freqs, "mean_db": means, "peak_db": peaks}
+    return {
+        "frequency_mhz":   freqs,
+        "mean_db":         means,
+        "peak_db":         peaks,
+        "alltime_peak_db": alltime,
+    }
 
 
 def get_band_activity(band_id: str, threshold_db: float,
@@ -180,6 +191,69 @@ def get_all_bands_activity_timeline(
             pcts.append(pct)
         result[bid] = {"buckets": buckets, "pcts": pcts}
     return result if result else None
+
+
+def get_band_power_histogram(band_id: str, filters: dict | None = None) -> dict | None:
+    """Return a 40-bin histogram of power_db values.
+
+    Useful for visualising the noise floor vs signal levels and calibrating
+    the min_power / activity threshold settings.
+    """
+    values = db.fetch_band_power_histogram(band_id, filters)
+    if not values:
+        return None
+    arr = np.array([v for v in values if v is not None and math.isfinite(v)], dtype=float)
+    if len(arr) == 0:
+        return None
+    n_bins = 40
+    counts_arr, edges = np.histogram(arr, bins=n_bins)
+    bins = [round((edges[i] + edges[i + 1]) / 2, 1) for i in range(n_bins)]
+    return {
+        "bins":    bins,
+        "counts":  counts_arr.tolist(),
+        "min_db":  round(float(arr.min()), 1),
+        "max_db":  round(float(arr.max()), 1),
+        "total":   int(len(arr)),
+    }
+
+
+def get_band_top_channels(band_id: str, threshold_db: float,
+                          limit: int = 10,
+                          filters: dict | None = None) -> dict | None:
+    """Return the N most active frequencies sorted by activity %."""
+    rows = db.fetch_band_top_channels(band_id, threshold_db, limit, filters)
+    if not rows:
+        return None
+    freqs, pcts, means = [], [], []
+    for r in rows:
+        f = _safe_float(r["frequency_mhz"])
+        m = _safe_float(r["mean_db"])
+        if f is None:
+            continue
+        pct = round(r["active"] / r["total"] * 100, 1) if r["total"] else 0.0
+        freqs.append(f)
+        pcts.append(pct)
+        means.append(m if m is not None else 0.0)
+    if not freqs:
+        return None
+    return {"frequency_mhz": freqs, "activity_pct": pcts, "mean_db": means}
+
+
+def get_band_activity_trend(band_id: str, threshold_db: float,
+                            granularity: str = "day",
+                            filters: dict | None = None) -> dict | None:
+    """Return per-bucket (daily or hourly) overall activity percentage."""
+    rows = db.fetch_band_activity_trend(band_id, threshold_db, granularity, filters)
+    if not rows:
+        return None
+    buckets, pcts = [], []
+    for r in rows:
+        pct = round(r["active"] / r["total"] * 100, 1) if r["total"] else 0.0
+        buckets.append(r["bucket"])
+        pcts.append(pct)
+    if not buckets:
+        return None
+    return {"buckets": buckets, "activity_pct": pcts}
 
 
 def get_band_signal_durations(band_id: str, threshold_db: float,

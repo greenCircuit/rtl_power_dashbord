@@ -2,15 +2,31 @@
 
 ## Requirements
 
-- An RTL-SDR compatible USB dongle (RTL2832U chipset)
-- `rtl-sdr` package installed on the host (`sudo apt install rtl-sdr` on Debian/Ubuntu)
+- A USB SDR receiver compatible with `rtl_power` (RTL-SDR, Nooelec, AirSpy, etc.)
+- `rtl-sdr` tools installed on the host (`sudo apt install rtl-sdr` on Debian/Ubuntu)
 - Python 3.11+ with dependencies from `requirements.txt`, **or** Docker
 
 ---
 
 ## Getting started
 
-### Option A — Run locally
+### Option A — Docker (recommended)
+
+Build the image:
+
+```bash
+docker build -t localhost/rtl-app:latest .
+```
+
+Run:
+
+```bash
+docker compose up
+```
+
+Open `http://localhost:8050` in a browser. The SQLite database is persisted in `./data` on the host. USB devices are passed through automatically.
+
+### Option B — Run locally
 
 ```bash
 # Create and activate a virtual environment
@@ -41,15 +57,7 @@ cd ui && npm run dev
 
 Open the Vite URL shown in the terminal (typically `http://localhost:5173`).
 
-### Option B — Docker (production)
-
-```bash
-docker compose up
-```
-
-Uses the `Dockerfile` image. The SQLite database is persisted in `./data` on the host.
-
-### Option C — Docker (development sandbox)
+### Option C — Docker development sandbox
 
 Build the sandbox image once:
 
@@ -107,7 +115,7 @@ When `false` (default), logs go to stdout only. Set to `true` to also write to `
 ```yaml
 charts:
   main_poll_interval_s: 30        # heatmap, spectrum, activity, timeseries
-  analytics_poll_interval_s: 60   # time-of-day, signal durations
+  analytics_poll_interval_s: 60   # time-of-day, signal durations, top channels
 ```
 
 ---
@@ -128,7 +136,7 @@ Click **+ Add Band** at the top of the dashboard. Fill in:
 | Step | Frequency resolution per bin | `12.5` kHz |
 | Interval | Seconds to spend scanning this band per cycle | `5` |
 | Min Power | Discard individual readings below this level (dBFS) | `-100` (keep everything), `2` (only active signals) |
-| Device | Which RTL-SDR dongle to use | `Device 0` |
+| Device | Which SDR device to use | shown by index and name |
 
 Hit **Save**. The band appears in the table. Click **▶ Start** to begin capturing.
 
@@ -166,10 +174,14 @@ Status badges:
 
 | Badge | Meaning |
 |---|---|
-| `running` | rtl_power is actively scanning |
+| `running` | `rtl_power` is actively scanning |
 | `idle` | band exists but capture is not started |
 | `stopped` | capture was manually stopped |
-| `error` | rtl_power exited with an error — check logs |
+| `error` | `rtl_power` exited with an error — check logs |
+
+### Band selector
+
+Below the band table, select which band's data to view in the charts. Once a band is selected, the header shows **Capturing [band name]** to confirm which band's data is being displayed.
 
 ### Filters
 
@@ -190,7 +202,7 @@ The main heatmap shows frequency (Y axis) vs time (X axis) with power encoded as
 
 - **Hover** — tooltip shows exact frequency, time, and power at the cursor
 - **Click** — loads a timeseries chart below the heatmap for the clicked frequency
-- The heatmap is downsampled to at most 500 frequency bins × 300 time bins for rendering; the full-resolution data remains in the database
+- When the dataset is large, the heatmap automatically aggregates into up to 300 time buckets in SQL before sending data to the browser — zooming into a short time window always shows full resolution
 
 ### Timeseries
 
@@ -206,7 +218,7 @@ Percentage of time each frequency bin was above the activity threshold during th
 
 ### Time-of-day occupancy
 
-A 7 × 24 heatmap (day of week vs hour of day). Each cell shows what percentage of measurements in that day/hour combination exceeded the activity threshold. Colour scale: light yellow = rarely active, dark red = heavily used.
+A 7 × 24 heatmap (day of week vs hour of day). Each cell shows what percentage of measurements in that day/hour combination exceeded the activity threshold.
 
 - **Hover** — tooltip shows day name, hour range, and exact activity percentage
 - Days with no data show as dark (0%)
@@ -216,6 +228,18 @@ Useful for spotting patterns such as weekday business traffic vs weekend activit
 ### Signal duration histogram
 
 Distribution of individual signal on-durations in seconds. Helps distinguish short bursts (data packets, PTT key-ups) from long continuous transmissions.
+
+### Activity trend
+
+Line chart of overall band activity percentage over time, with selectable granularity (5m, 15m, 1h, 6h, 1d). Useful for seeing how busy a band is over days or weeks.
+
+### Top active channels
+
+Horizontal bar chart of the most active frequency bins, sorted by activity percentage. Quickly shows which specific channels within a band are most used.
+
+### Power distribution
+
+Histogram of all power readings across the selected window. Useful for calibrating the activity threshold — the noise floor appears as a cluster of low-power readings; signals appear as a tail or secondary peak.
 
 ### Fullscreen mode
 
@@ -228,15 +252,16 @@ Click the **⚙ Status** button in the top-right corner to open the status panel
 - Whether the backend is reachable
 - Total database size (MB)
 - Total measurement count
-- Per-band row count and last capture timestamp
 - Live vs Demo mode
 - Database file path
+- Available SDR devices (index and name as reported by the driver)
+- Per-band row count, last capture timestamp, and how long ago that was
 
 ---
 
 ## Multiple devices
 
-If you have more than one RTL-SDR dongle, each band can be assigned to a specific device via the **Device** field. The device list is populated automatically by probing `rtl_test` when the server starts. Bands on different devices capture independently and simultaneously.
+If you have more than one SDR device connected, each band can be assigned to a specific device via the **Device** field. The device list is probed automatically on server startup using `rtl_test` and shown in the band modal and the status panel. Bands on different devices capture independently and simultaneously.
 
 ---
 
@@ -252,6 +277,6 @@ If you have more than one RTL-SDR dongle, each band can be assigned to a specifi
 
 **Cleanup tuning** — for continuous 24/7 monitoring, set `max_time_hrs` and `db_max_size_mb` conservatively. The cleanup job runs every `interval_mins` and re-reads config each cycle, so you can tighten limits without restarting the server.
 
-**Device conflicts** — only one process can hold the RTL-SDR device at a time. If `rtl_power` fails to start with a device-busy error, check for stale processes: `pkill rtl_power`.
+**Device conflicts** — only one process can hold an SDR device at a time. If `rtl_power` fails to start with a device-busy error, check for stale processes: `pkill rtl_power`.
 
 **Demo mode** — set `DEMO_MODE=true` to replay pre-recorded data from `demo/seed.db` without any hardware. Useful for development and UI testing.

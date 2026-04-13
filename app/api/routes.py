@@ -16,6 +16,9 @@ from app.data.parser import (
     get_band_tod_activity,
     get_all_bands_activity_timeline,
     get_band_signal_durations,
+    get_band_power_histogram,
+    get_band_top_channels,
+    get_band_activity_trend,
 )
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
@@ -107,6 +110,7 @@ def backend_status():
         "db_size_mb":        db_info["db_size_mb"],
         "total_measurements": total,
         "bands":             db_info["bands"],
+        "devices":           _get_devices(),
     })
 
 
@@ -302,6 +306,37 @@ def bands_overview():
             "last_seen":    stats["last_seen"] if stats else None,
         })
     return jsonify({"bands": result})
+
+
+@api_bp.route("/bands/<band_id>/power-histogram", methods=["GET"])
+def band_power_histogram(band_id: str):
+    filters = _parse_filters(request.args)
+    data = get_band_power_histogram(band_id, filters)
+    if data is None:
+        return jsonify({"error": "no data"}), 404
+    return jsonify(data)
+
+
+@api_bp.route("/bands/<band_id>/top-channels", methods=["GET"])
+def band_top_channels(band_id: str):
+    filters   = _parse_filters(request.args)
+    threshold = float(request.args.get("threshold", 0))
+    limit     = int(request.args.get("limit", 10))
+    data = get_band_top_channels(band_id, threshold, limit, filters)
+    if data is None:
+        return jsonify({"error": "no data"}), 404
+    return jsonify(data)
+
+
+@api_bp.route("/bands/<band_id>/activity-trend", methods=["GET"])
+def band_activity_trend(band_id: str):
+    filters     = _parse_filters(request.args)
+    threshold   = float(request.args.get("threshold", 0))
+    granularity = request.args.get("granularity", "1h")
+    data = get_band_activity_trend(band_id, threshold, granularity, filters)
+    if data is None:
+        return jsonify({"error": "no data"}), 404
+    return jsonify(data)
 
 
 @api_bp.route("/bands/<band_id>/signal-durations", methods=["GET"])

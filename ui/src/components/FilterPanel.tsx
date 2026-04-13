@@ -127,13 +127,21 @@ export default function FilterPanel() {
           <div className="col-auto">
             <span className="slider-label">Activity Threshold (dBFS):</span>
           </div>
+          <div className="col-auto">
+            <span className="slider-label text-muted">-20</span>
+          </div>
           <div className="col">
-            <input type="range" className="form-range" min={-10} max={10} step={1}
+            <input type="range" className="form-range" min={-20} max={20} step={0.5}
               value={threshold}
               onChange={e => setThreshold(Number(e.target.value))} />
           </div>
           <div className="col-auto">
-            <span className="slider-label">{threshold} dB</span>
+            <span className="slider-label text-muted">+20</span>
+          </div>
+          <div className="col-auto" style={{ minWidth: 64 }}>
+            <span className="badge bg-secondary fs-6">
+              {threshold > 0 ? '+' : ''}{threshold} dB
+            </span>
           </div>
         </div>
       </div>

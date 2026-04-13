@@ -8,6 +8,9 @@ import type {
   TodData,
   DurationData,
   TimeseriesData,
+  PowerHistogramData,
+  TopChannelsData,
+  ActivityTrendData,
   Filters,
 } from '../api'
 
@@ -79,6 +82,33 @@ export function useDurations(): FetchResult<DurationData> {
   const threshold = useStore(s => s.threshold)
   const analysis  = useStore(s => s.analysisRefreshTick)
   return useBandFetch(api.fetchDurations, bandId, filters, { threshold }, [filters, threshold, analysis])
+}
+
+export function usePowerHistogram(): FetchResult<PowerHistogramData> {
+  const bandId  = useStore(s => s.bandId)
+  const filters = useStore(s => s.filters)
+  const refresh = useStore(s => s.refreshTick)
+  return useBandFetch(api.fetchPowerHistogram, bandId, filters, {}, [filters, refresh])
+}
+
+export function useTopChannels(): FetchResult<TopChannelsData> {
+  const bandId    = useStore(s => s.bandId)
+  const filters   = useStore(s => s.filters)
+  const threshold = useStore(s => s.threshold)
+  const refresh   = useStore(s => s.refreshTick)
+  return useBandFetch(api.fetchTopChannels, bandId, filters, { threshold }, [filters, threshold, refresh])
+}
+
+export function useActivityTrend(granularity: string): FetchResult<ActivityTrendData> {
+  const bandId    = useStore(s => s.bandId)
+  const filters   = useStore(s => s.filters)
+  const threshold = useStore(s => s.threshold)
+  const analysis  = useStore(s => s.analysisRefreshTick)
+  return useBandFetch(
+    api.fetchActivityTrend, bandId, filters,
+    { threshold, granularity },
+    [filters, threshold, granularity, analysis],
+  )
 }
 
 export function useTimeseries(): FetchResult<TimeseriesData> {

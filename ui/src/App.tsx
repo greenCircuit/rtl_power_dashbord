@@ -10,6 +10,9 @@ import SpectrumChart from './components/charts/SpectrumChart'
 import ActivityChart from './components/charts/ActivityChart'
 import TodHeatmap from './components/charts/TodHeatmap'
 import DurationChart from './components/charts/DurationChart'
+import PowerHistogramChart from './components/charts/PowerHistogramChart'
+import TopChannelsChart from './components/charts/TopChannelsChart'
+import ActivityTrendChart from './components/charts/ActivityTrendChart'
 import StatusModal from './components/StatusModal'
 import ChartFullscreen from './components/ChartFullscreen'
 
@@ -34,8 +37,7 @@ export default function App() {
     return () => { clearInterval(t1); clearInterval(t2) }
   }, [])
 
-  const running = bands.filter(b => b.status === 'running').map(b => b.name)
-  const statusText = running.length ? `Running: ${running.join(', ')}` : 'No active captures'
+  const selectedBand = bands.find(b => b.id === bandId)
 
   return (
     <div className="container-fluid py-3">
@@ -76,21 +78,42 @@ export default function App() {
             ))}
           </select>
         </div>
-        <div className="col-md-8 col-sm-6">
-          <span className="text-muted small">{statusText}</span>
+        <div className="col-md-8 col-sm-6 d-flex align-items-center gap-2">
+          {selectedBand ? (
+            <span className="fw-semibold">Capturing {selectedBand.name}</span>
+          ) : (
+            <span className="text-muted small">No active captures</span>
+          )}
         </div>
       </div>
 
       {/* Filters */}
       <FilterPanel />
 
-      {/* Analysis charts: ToD occupancy + Signal duration */}
+      {/* Analysis charts row 1: ToD occupancy + Signal duration */}
       <div className="row mb-3">
         <div className="col-md-6 mb-2">
           <ChartFullscreen><TodHeatmap /></ChartFullscreen>
         </div>
         <div className="col-md-6 mb-2">
           <ChartFullscreen><DurationChart /></ChartFullscreen>
+        </div>
+      </div>
+
+      {/* Analysis charts row 2: Activity trend + Power histogram */}
+      <div className="row mb-3">
+        <div className="col-md-6 mb-2">
+          <ChartFullscreen><ActivityTrendChart /></ChartFullscreen>
+        </div>
+        <div className="col-md-6 mb-2">
+          <ChartFullscreen><PowerHistogramChart /></ChartFullscreen>
+        </div>
+      </div>
+
+      {/* Top active channels */}
+      <div className="row mb-3">
+        <div className="col-12">
+          <ChartFullscreen><TopChannelsChart /></ChartFullscreen>
         </div>
       </div>
 
