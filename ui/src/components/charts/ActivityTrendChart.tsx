@@ -37,6 +37,7 @@ export default function ActivityTrendChart() {
       options: {
         ...BASE_OPTS,
         scales: darkScales('Time', 'Activity (%)', {
+          type: 'category',
           ticks: { color: '#999', maxTicksLimit: 10 },
         }, {
           min: 0, max: 100,

@@ -69,6 +69,7 @@ export default function NoiseFloorChart() {
       options: {
         ...BASE_OPTS,
         scales: darkScales('Time', 'Power (dBFS)', {
+          type: 'category',
           ticks: { color: '#999', maxTicksLimit: 10 },
         }, {
           ticks: { color: '#999' },

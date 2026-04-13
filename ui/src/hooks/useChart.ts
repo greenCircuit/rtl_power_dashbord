@@ -25,7 +25,12 @@ export function useChart<T>(
   const chartRef = useRef<Chart | null>(null)
 
   useEffect(() => {
-    if (!data || !canvasRef.current) return
+    if (!data || !canvasRef.current) {
+      // Destroy stale chart so next data arrival calls create() with fresh closures
+      chartRef.current?.destroy()
+      chartRef.current = null
+      return
+    }
     if (!chartRef.current) {
       chartRef.current = create(canvasRef.current, data)
     } else {

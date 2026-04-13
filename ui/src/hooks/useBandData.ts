@@ -34,6 +34,10 @@ function useBandFetch<T>(
 
   useEffect(() => {
     if (!bandId) { setData(null); setError(false); return }
+    // Reset immediately so charts recreate from scratch on band/filter changes
+    // instead of calling update() with stale closures from the previous create().
+    setData(null)
+    setError(false)
     let cancelled = false
     fetcher(bandId, filtersToQS(filters, extra))
       .then(d  => { if (!cancelled) { setData(d); setError(false) } })
