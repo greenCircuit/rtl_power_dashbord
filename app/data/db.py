@@ -250,13 +250,17 @@ def _apply_filters(q, filters: dict | None):
 _HEATMAP_MAX_SWEEPS = 300
 
 
-def fetch_band_measurements(band_id: str, filters: dict | None = None) -> list[tuple]:
+def fetch_band_measurements(band_id: str, filters: dict | None = None,
+                            agg: str = "avg") -> list[tuple]:
     """Return [(timestamp, frequency_mhz, power_db), ...].
 
-    If the filtered dataset has more than _HEATMAP_MAX_SWEEPS distinct
-    timestamps, rows are averaged into time buckets in SQL so the heatmap
-    builder receives at most _HEATMAP_MAX_SWEEPS time slots without pulling
-    all raw rows into Python.
+    *agg* controls how readings are combined when the dataset exceeds
+    _HEATMAP_MAX_SWEEPS distinct timestamps:
+      ``"avg"`` (default) — mean power per bucket (standard heatmap)
+      ``"max"``           — peak power per bucket (max-hold heatmap)
+
+    Small datasets (≤ _HEATMAP_MAX_SWEEPS sweeps) always return every raw row;
+    the caller's pivot/aggfunc handles the per-cell aggregation.
     """
     with _session() as sess:
         # ── Step 1: cheap metadata scan ───────────────────────────────────────
@@ -298,10 +302,11 @@ def fetch_band_measurements(band_id: str, filters: dict | None = None) -> list[t
             "unixepoch",
         )
 
+        agg_func = func.max if agg == "max" else func.avg
         q = sess.query(
             bucket_expr.label("timestamp"),
             BandMeasurement.frequency_mhz,
-            func.avg(BandMeasurement.power_db).label("power_db"),
+            agg_func(BandMeasurement.power_db).label("power_db"),
         ).filter(BandMeasurement.band_id == band_id)
         q = _apply_filters(q, filters)
         q = q.group_by(bucket_expr, BandMeasurement.frequency_mhz)
@@ -425,8 +430,7 @@ def fetch_band_tod_activity(band_id: str, threshold_db: float,
 
 
 def fetch_band_activity_timeline(band_id: str, threshold_db: float,
-                                 filters: dict | None = None,
-                                 bucket_minutes: int = 15) -> list[dict]:
+                                 filters: dict | None = None) -> list[dict]:
     """Return time-bucketed activity [{bucket, active, total}]."""
     with _session() as sess:
         # Truncate timestamp to the hour for bucketing
@@ -621,6 +625,35 @@ def fetch_band_activity_trend(band_id: str, threshold_db: float,
         q = q.group_by(bucket_expr).order_by(bucket_expr)
         return [{"bucket": r.bucket, "active": r.active, "total": r.total}
                 for r in q.all()]
+
+
+def fetch_band_power_envelope(band_id: str, granularity: str = "1h",
+                              filters: dict | None = None) -> list[dict]:
+    """Return per-time-bucket min/mean/max power.
+
+    [{bucket, min_db, mean_db, max_db}] — used for noise-floor and peak-power
+    trend charts.  *granularity* uses the same keys as fetch_band_activity_trend.
+    """
+    width = _GRANULARITY_SECONDS.get(granularity, 3600)
+    ts_epoch = func.strftime("%s", BandMeasurement.timestamp)
+    bucket_expr = func.datetime(
+        ts_epoch - ts_epoch % width,
+        "unixepoch",
+    )
+    with _session() as sess:
+        q = sess.query(
+            bucket_expr.label("bucket"),
+            func.min(BandMeasurement.power_db).label("min_db"),
+            func.avg(BandMeasurement.power_db).label("mean_db"),
+            func.max(BandMeasurement.power_db).label("max_db"),
+        ).filter(BandMeasurement.band_id == band_id)
+        q = _apply_filters(q, filters)
+        q = q.group_by(bucket_expr).order_by(bucket_expr)
+        return [
+            {"bucket": r.bucket, "min_db": r.min_db,
+             "mean_db": r.mean_db, "max_db": r.max_db}
+            for r in q.all()
+        ]
 
 
 def fetch_band_signal_raw(band_id: str, threshold_db: float,

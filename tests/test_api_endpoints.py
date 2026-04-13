@@ -642,6 +642,100 @@ class TestSignalDurations:
         assert _no_non_finite(data)
 
 
+# ── /heatmap-maxhold ──────────────────────────────────────────────────────────
+
+class TestHeatmapMaxhold:
+
+    def test_404_unknown_band(self, flask_client):
+        r = flask_client.get("/api/bands/no_such_band/heatmap-maxhold")
+        assert r.status_code == 404
+
+    def test_404_band_exists_no_data(self, flask_client):
+        _create_band()
+        r = flask_client.get(f"/api/bands/{BAND_ID}/heatmap-maxhold")
+        assert r.status_code == 404
+
+    def test_200_structure(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/heatmap-maxhold"))
+        assert set(data.keys()) >= {"x", "y", "z", "freq_min", "freq_max"}
+
+    def test_z_dimensions_match_x_y(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/heatmap-maxhold"))
+        assert len(data["z"]) == len(data["y"])
+        assert all(len(row) == len(data["x"]) for row in data["z"])
+
+    def test_max_hold_ge_mean_heatmap(self, flask_client):
+        """Every non-null max-hold cell must be >= the corresponding mean cell."""
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        mean_data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/heatmap"))
+        max_data  = _ok(flask_client.get(f"/api/bands/{BAND_ID}/heatmap-maxhold"))
+        for r_max, r_mean in zip(max_data["z"], mean_data["z"]):
+            for v_max, v_mean in zip(r_max, r_mean):
+                if v_max is not None and v_mean is not None:
+                    assert v_max >= v_mean, f"max-hold {v_max} < mean {v_mean}"
+
+    def test_no_non_finite_floats(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/heatmap-maxhold"))
+        assert _no_non_finite(data)
+
+
+# ── /noise-floor ───────────────────────────────────────────────────────────────
+
+class TestNoiseFloor:
+
+    def test_404_unknown_band(self, flask_client):
+        r = flask_client.get("/api/bands/no_such_band/noise-floor")
+        assert r.status_code == 404
+
+    def test_404_band_exists_no_data(self, flask_client):
+        _create_band()
+        r = flask_client.get(f"/api/bands/{BAND_ID}/noise-floor")
+        assert r.status_code == 404
+
+    def test_200_structure(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/noise-floor"))
+        assert set(data.keys()) == {"buckets", "min_db", "mean_db", "max_db"}
+
+    def test_arrays_same_length(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/noise-floor"))
+        n = len(data["buckets"])
+        assert len(data["min_db"]) == n
+        assert len(data["mean_db"]) == n
+        assert len(data["max_db"]) == n
+
+    def test_min_le_mean_le_max(self, flask_client):
+        """Per-bucket ordering: min ≤ mean ≤ max must always hold."""
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/noise-floor"))
+        for mn, me, mx in zip(data["min_db"], data["mean_db"], data["max_db"]):
+            assert mn <= me <= mx, f"ordering violated: min={mn} mean={me} max={mx}"
+
+    def test_no_non_finite_floats(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/noise-floor"))
+        assert _no_non_finite(data)
+
+    def test_all_granularities_accepted(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        for gran in ("5m", "15m", "1h", "6h", "1d"):
+            r = flask_client.get(f"/api/bands/{BAND_ID}/noise-floor?granularity={gran}")
+            assert r.status_code == 200, f"granularity={gran!r} returned {r.status_code}"
+
+
 # ── sanitisation unit tests (parser._safe_float) ─────────────────────────────
 
 class TestSafeFloat:

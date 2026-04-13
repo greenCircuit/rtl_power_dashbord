@@ -76,6 +76,13 @@ export interface ActivityTrendData {
   activity_pct: number[]
 }
 
+export interface NoiseFloorData {
+  buckets: string[]
+  min_db:  number[]
+  mean_db: number[]
+  max_db:  number[]
+}
+
 export interface ActivityData {
   frequency_mhz: number[]
   activity_pct: number[]
@@ -206,4 +213,7 @@ export const api = {
 
   fetchActivityTrend: (id: string, qs: string) =>
     apiFetch<ActivityTrendData>(`/api/bands/${id}/activity-trend${qs}`),
+
+  fetchNoiseFloor: (id: string, qs: string) =>
+    apiFetch<NoiseFloorData>(`/api/bands/${id}/noise-floor${qs}`),
 }

@@ -11,6 +11,7 @@ import type {
   PowerHistogramData,
   TopChannelsData,
   ActivityTrendData,
+  NoiseFloorData,
   Filters,
 } from '../api'
 
@@ -108,6 +109,17 @@ export function useActivityTrend(granularity: string): FetchResult<ActivityTrend
     api.fetchActivityTrend, bandId, filters,
     { threshold, granularity },
     [filters, threshold, granularity, analysis],
+  )
+}
+
+export function useNoiseFloor(granularity: string): FetchResult<NoiseFloorData> {
+  const bandId  = useStore(s => s.bandId)
+  const filters = useStore(s => s.filters)
+  const analysis = useStore(s => s.analysisRefreshTick)
+  return useBandFetch(
+    api.fetchNoiseFloor, bandId, filters,
+    { granularity },
+    [filters, granularity, analysis],
   )
 }
 

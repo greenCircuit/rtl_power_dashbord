@@ -31,12 +31,13 @@ def build_heatmap_arrays(
     df: pd.DataFrame,
     max_time_bins: int = 300,
     max_freq_bins: int = 500,
+    aggfunc: str = "mean",
 ) -> dict:
     pivot = df.pivot_table(
         index="timestamp",
         columns="frequency_mhz",
         values="power_db",
-        aggfunc="mean",
+        aggfunc=aggfunc,
     )
     if len(pivot) > max_time_bins:
         step = len(pivot) // max_time_bins
@@ -70,6 +71,38 @@ def get_band_data(band_id: str, filters: dict | None = None) -> dict | None:
     df = pd.DataFrame(rows, columns=["timestamp", "frequency_mhz", "power_db"])
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     return build_heatmap_arrays(df)
+
+
+def get_band_maxhold(band_id: str, filters: dict | None = None) -> dict | None:
+    """Max-hold heatmap: peak power per (time-bucket, frequency) cell."""
+    rows = db.fetch_band_measurements(band_id, filters, agg="max")
+    if not rows:
+        return None
+    df = pd.DataFrame(rows, columns=["timestamp", "frequency_mhz", "power_db"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return build_heatmap_arrays(df, aggfunc="max")
+
+
+def get_band_noise_floor(band_id: str, granularity: str = "1h",
+                         filters: dict | None = None) -> dict | None:
+    """Per-bucket min/mean/max power — noise floor + peak envelope over time."""
+    rows = db.fetch_band_power_envelope(band_id, granularity, filters)
+    if not rows:
+        return None
+    buckets, mins, means, maxs = [], [], [], []
+    for r in rows:
+        mn = _safe_float(r["min_db"])
+        me = _safe_float(r["mean_db"])
+        mx = _safe_float(r["max_db"])
+        if mn is None or me is None or mx is None:
+            continue
+        buckets.append(r["bucket"])
+        mins.append(mn)
+        means.append(me)
+        maxs.append(mx)
+    if not buckets:
+        return None
+    return {"buckets": buckets, "min_db": mins, "mean_db": means, "max_db": maxs}
 
 
 def get_band_stats(band_id: str, filters: dict | None = None) -> dict | None:

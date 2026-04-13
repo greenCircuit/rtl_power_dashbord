@@ -13,6 +13,7 @@ import DurationChart from './components/charts/DurationChart'
 import PowerHistogramChart from './components/charts/PowerHistogramChart'
 import TopChannelsChart from './components/charts/TopChannelsChart'
 import ActivityTrendChart from './components/charts/ActivityTrendChart'
+import NoiseFloorChart from './components/charts/NoiseFloorChart'
 import StatusModal from './components/StatusModal'
 import ChartFullscreen from './components/ChartFullscreen'
 
@@ -100,20 +101,23 @@ export default function App() {
         </div>
       </div>
 
-      {/* Analysis charts row 2: Activity trend + Power histogram */}
+      {/* Analysis charts row 2: Activity trend + Noise floor envelope */}
       <div className="row mb-3">
         <div className="col-md-6 mb-2">
           <ChartFullscreen><ActivityTrendChart /></ChartFullscreen>
         </div>
         <div className="col-md-6 mb-2">
-          <ChartFullscreen><PowerHistogramChart /></ChartFullscreen>
+          <ChartFullscreen><NoiseFloorChart /></ChartFullscreen>
         </div>
       </div>
 
-      {/* Top active channels */}
+      {/* Top active channels + Power distribution */}
       <div className="row mb-3">
-        <div className="col-12">
+        <div className="col-md-6 mb-2">
           <ChartFullscreen><TopChannelsChart /></ChartFullscreen>
+        </div>
+        <div className="col-md-6 mb-2">
+          <ChartFullscreen><PowerHistogramChart /></ChartFullscreen>
         </div>
       </div>
 

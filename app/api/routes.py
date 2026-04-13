@@ -10,6 +10,8 @@ from app.capture.manager import band_manager
 from app.data import db
 from app.data.parser import (
     get_band_data,
+    get_band_maxhold,
+    get_band_noise_floor,
     get_band_stats,
     get_band_activity,
     get_band_timeseries,
@@ -219,6 +221,25 @@ def band_status(band_id: str):
 def band_heatmap(band_id: str):
     filters = _parse_filters(request.args)
     data = get_band_data(band_id, filters)
+    if data is None:
+        return jsonify({"error": "no data"}), 404
+    return jsonify(data)
+
+
+@api_bp.route("/bands/<band_id>/heatmap-maxhold", methods=["GET"])
+def band_heatmap_maxhold(band_id: str):
+    filters = _parse_filters(request.args)
+    data = get_band_maxhold(band_id, filters)
+    if data is None:
+        return jsonify({"error": "no data"}), 404
+    return jsonify(data)
+
+
+@api_bp.route("/bands/<band_id>/noise-floor", methods=["GET"])
+def band_noise_floor(band_id: str):
+    filters     = _parse_filters(request.args)
+    granularity = request.args.get("granularity", "1h")
+    data = get_band_noise_floor(band_id, granularity, filters)
     if data is None:
         return jsonify({"error": "no data"}), 404
     return jsonify(data)
