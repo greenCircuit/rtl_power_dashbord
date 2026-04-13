@@ -330,6 +330,318 @@ class TestTimeseries:
         assert ts == sorted(ts)
 
 
+# ── /status ───────────────────────────────────────────────────────────────────
+
+class TestStatus:
+
+    def test_200_structure(self, flask_client):
+        data = _ok(flask_client.get("/api/status"))
+        assert data["status"] == "ok"
+        assert "db_size_mb" in data
+        assert "total_measurements" in data
+        assert "bands" in data
+        assert "devices" in data
+        assert "demo_mode" in data
+
+    def test_devices_is_list(self, flask_client):
+        data = _ok(flask_client.get("/api/status"))
+        assert isinstance(data["devices"], list)
+
+    def test_devices_have_index_and_name(self, flask_client):
+        data = _ok(flask_client.get("/api/status"))
+        for d in data["devices"]:
+            assert "index" in d and "name" in d
+            assert isinstance(d["index"], int)
+            assert isinstance(d["name"], str)
+
+    def test_demo_mode_is_bool(self, flask_client):
+        data = _ok(flask_client.get("/api/status"))
+        assert isinstance(data["demo_mode"], bool)
+
+    def test_bands_is_list(self, flask_client):
+        data = _ok(flask_client.get("/api/status"))
+        assert isinstance(data["bands"], list)
+
+    def test_per_band_entry_structure(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get("/api/status"))
+        assert len(data["bands"]) > 0
+        for b in data["bands"]:
+            assert "band_id" in b and "count" in b and "last_seen" in b
+
+
+# ── /tod-activity ──────────────────────────────────────────────────────────────
+
+class TestTodActivity:
+
+    def test_404_unknown_band(self, flask_client):
+        r = flask_client.get("/api/bands/no_such_band/tod-activity")
+        assert r.status_code == 404
+
+    def test_404_band_exists_no_data(self, flask_client):
+        _create_band()
+        r = flask_client.get(f"/api/bands/{BAND_ID}/tod-activity")
+        assert r.status_code == 404
+
+    def test_200_structure(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/tod-activity"))
+        assert set(data.keys()) == {"z", "x", "y"}
+
+    def test_z_is_7x24_grid(self, flask_client):
+        """z must always be exactly 7 rows (days) × 24 columns (hours)."""
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/tod-activity"))
+        assert len(data["z"]) == 7
+        assert all(len(row) == 24 for row in data["z"])
+
+    def test_x_is_0_to_23(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/tod-activity"))
+        assert data["x"] == list(range(24))
+
+    def test_y_has_7_day_labels(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/tod-activity"))
+        assert len(data["y"]) == 7
+        assert all(isinstance(d, str) for d in data["y"])
+
+    def test_all_values_in_range(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/tod-activity?threshold=-100"))
+        for row in data["z"]:
+            for v in row:
+                assert 0.0 <= v <= 100.0, f"activity value out of range: {v}"
+
+    def test_low_threshold_gives_nonzero_activity(self, flask_client):
+        """With threshold below all readings, at least one cell must be > 0."""
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/tod-activity?threshold=-100"))
+        all_values = [v for row in data["z"] for v in row]
+        assert any(v > 0 for v in all_values)
+
+    def test_high_threshold_gives_all_zero(self, flask_client):
+        """With threshold above all readings, every cell must be 0."""
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        # All CLEAN_ROWS have power <= -54; threshold=0 → nothing active
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/tod-activity?threshold=0"))
+        assert all(v == 0.0 for row in data["z"] for v in row)
+
+
+# ── /power-histogram ──────────────────────────────────────────────────────────
+
+class TestPowerHistogram:
+
+    def test_404_unknown_band(self, flask_client):
+        r = flask_client.get("/api/bands/no_such_band/power-histogram")
+        assert r.status_code == 404
+
+    def test_404_band_exists_no_data(self, flask_client):
+        _create_band()
+        r = flask_client.get(f"/api/bands/{BAND_ID}/power-histogram")
+        assert r.status_code == 404
+
+    def test_200_structure(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/power-histogram"))
+        assert set(data.keys()) == {"bins", "counts", "min_db", "max_db", "total"}
+
+    def test_bins_and_counts_same_length(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/power-histogram"))
+        assert len(data["bins"]) == len(data["counts"])
+
+    def test_total_matches_input_row_count(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/power-histogram"))
+        assert data["total"] == len(CLEAN_ROWS)
+
+    def test_min_le_max(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/power-histogram"))
+        assert data["min_db"] <= data["max_db"]
+
+    def test_counts_are_non_negative(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/power-histogram"))
+        assert all(c >= 0 for c in data["counts"])
+
+    def test_no_non_finite_floats(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/power-histogram"))
+        assert _no_non_finite(data)
+
+
+# ── /top-channels ─────────────────────────────────────────────────────────────
+
+class TestTopChannels:
+
+    def test_404_unknown_band(self, flask_client):
+        r = flask_client.get("/api/bands/no_such_band/top-channels")
+        assert r.status_code == 404
+
+    def test_404_band_exists_no_data(self, flask_client):
+        _create_band()
+        r = flask_client.get(f"/api/bands/{BAND_ID}/top-channels")
+        assert r.status_code == 404
+
+    def test_200_structure(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/top-channels?threshold=-100"))
+        assert set(data.keys()) == {"frequency_mhz", "activity_pct", "mean_db"}
+
+    def test_arrays_same_length(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/top-channels?threshold=-100"))
+        assert len(data["frequency_mhz"]) == len(data["activity_pct"]) == len(data["mean_db"])
+
+    def test_sorted_by_activity_descending(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/top-channels?threshold=-100"))
+        pcts = data["activity_pct"]
+        assert pcts == sorted(pcts, reverse=True)
+
+    def test_limit_param_respected(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/top-channels?threshold=-100&limit=1"))
+        assert len(data["frequency_mhz"]) <= 1
+
+    def test_activity_pct_in_range(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/top-channels?threshold=-100"))
+        for pct in data["activity_pct"]:
+            assert 0.0 <= pct <= 100.0
+
+
+# ── /activity-trend ───────────────────────────────────────────────────────────
+
+class TestActivityTrend:
+
+    def test_404_unknown_band(self, flask_client):
+        r = flask_client.get("/api/bands/no_such_band/activity-trend")
+        assert r.status_code == 404
+
+    def test_404_band_exists_no_data(self, flask_client):
+        _create_band()
+        r = flask_client.get(f"/api/bands/{BAND_ID}/activity-trend")
+        assert r.status_code == 404
+
+    def test_200_structure(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/activity-trend"))
+        assert set(data.keys()) == {"buckets", "activity_pct"}
+
+    def test_arrays_same_length(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/activity-trend"))
+        assert len(data["buckets"]) == len(data["activity_pct"])
+
+    def test_activity_pct_in_range(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/activity-trend?threshold=-100"))
+        for pct in data["activity_pct"]:
+            assert 0.0 <= pct <= 100.0
+
+    def test_all_granularities_accepted(self, flask_client):
+        """All documented granularity values must return 200, not 404 or 500."""
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        for gran in ("5m", "15m", "1h", "6h", "1d"):
+            r = flask_client.get(f"/api/bands/{BAND_ID}/activity-trend?granularity={gran}")
+            assert r.status_code == 200, f"granularity={gran!r} returned {r.status_code}"
+
+    def test_low_threshold_gives_nonzero_activity(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, CLEAN_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/activity-trend?threshold=-100"))
+        assert any(pct > 0 for pct in data["activity_pct"])
+
+
+# ── /signal-durations ─────────────────────────────────────────────────────────
+#
+# Three readings at the same frequency, each 10 s apart, all above threshold=-100.
+# This produces one contiguous run of 20 s duration.
+
+DURATION_ROWS = [
+    ("2024-01-01 12:00:00", 144.0, -30.0),
+    ("2024-01-01 12:00:10", 144.0, -30.0),
+    ("2024-01-01 12:00:20", 144.0, -30.0),
+]
+
+
+class TestSignalDurations:
+
+    def test_404_unknown_band(self, flask_client):
+        r = flask_client.get("/api/bands/no_such_band/signal-durations")
+        assert r.status_code == 404
+
+    def test_404_band_exists_no_data(self, flask_client):
+        _create_band()
+        r = flask_client.get(f"/api/bands/{BAND_ID}/signal-durations")
+        assert r.status_code == 404
+
+    def test_404_no_signals_above_threshold(self, flask_client):
+        """All readings below threshold → no active runs → 404."""
+        _create_band()
+        insert_measurements(BAND_ID, DURATION_ROWS)
+        # threshold=0 is above all DURATION_ROWS power values (-30 dBFS)
+        r = flask_client.get(f"/api/bands/{BAND_ID}/signal-durations?threshold=0")
+        assert r.status_code == 404
+
+    def test_200_structure(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, DURATION_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/signal-durations?threshold=-100"))
+        assert set(data.keys()) == {"bins", "counts", "total", "min_s", "max_s"}
+
+    def test_bins_and_counts_same_length(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, DURATION_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/signal-durations?threshold=-100"))
+        assert len(data["bins"]) == len(data["counts"])
+
+    def test_min_le_max(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, DURATION_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/signal-durations?threshold=-100"))
+        assert data["min_s"] <= data["max_s"]
+
+    def test_detected_duration_is_positive(self, flask_client):
+        """The run from 12:00:00 → 12:00:20 must produce a duration > 0."""
+        _create_band()
+        insert_measurements(BAND_ID, DURATION_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/signal-durations?threshold=-100"))
+        assert data["min_s"] > 0
+
+    def test_no_non_finite_floats(self, flask_client):
+        _create_band()
+        insert_measurements(BAND_ID, DURATION_ROWS)
+        data = _ok(flask_client.get(f"/api/bands/{BAND_ID}/signal-durations?threshold=-100"))
+        assert _no_non_finite(data)
+
+
 # ── sanitisation unit tests (parser._safe_float) ─────────────────────────────
 
 class TestSafeFloat:

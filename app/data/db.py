@@ -3,13 +3,14 @@ SQLAlchemy database layer — band management and measurement queries.
 """
 
 import logging
+import math
 from datetime import datetime
 from pathlib import Path
 
 import yaml
 from sqlalchemy import (
     Boolean, Column, Float, Index, Integer, String, Text,
-    case, create_engine, event, func, text,
+    case, create_engine, distinct, event, func, text,
 )
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -260,7 +261,7 @@ def fetch_band_measurements(band_id: str, filters: dict | None = None) -> list[t
     with _session() as sess:
         # ── Step 1: cheap metadata scan ───────────────────────────────────────
         meta_q = sess.query(
-            func.count(func.distinct(BandMeasurement.timestamp)).label("n_sweeps"),
+            func.count(BandMeasurement.timestamp.distinct()).label("n_sweeps"),
             func.min(BandMeasurement.timestamp).label("ts_min"),
             func.max(BandMeasurement.timestamp).label("ts_max"),
         ).filter(BandMeasurement.band_id == band_id)
@@ -287,13 +288,13 @@ def fetch_band_measurements(band_id: str, filters: dict | None = None) -> list[t
         except (ValueError, TypeError):
             total_s = n_sweeps  # fallback: treat each sweep as 1 second
 
-        bucket_s = max(int(total_s / _HEATMAP_MAX_SWEEPS), 1)
+        bucket_s = max(math.ceil(total_s / _HEATMAP_MAX_SWEEPS), 1)
 
-        # Round each timestamp down to the nearest bucket boundary, then
-        # re-format as an ISO string so the parser sees the same type as raw.
+        # Round each timestamp down to the nearest bucket boundary using modulo
+        # arithmetic (avoids CAST-to-NUMERIC float-division issue in SQLAlchemy).
+        ts_epoch = func.strftime("%s", BandMeasurement.timestamp)
         bucket_expr = func.datetime(
-            (func.cast(func.strftime("%s", BandMeasurement.timestamp), Integer) / bucket_s)
-            * bucket_s,
+            ts_epoch - ts_epoch % bucket_s,
             "unixepoch",
         )
 

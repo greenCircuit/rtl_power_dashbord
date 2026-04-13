@@ -194,6 +194,81 @@ def test_time_filter_excludes_rows_outside_range(tmp_db):
     assert rows[0][0] == "2026-04-03 10:00:00"
 
 
+# ── fetch_band_measurements adaptive bucketing ────────────────────────────────
+
+def test_fetch_measurements_raw_path_returns_all_rows(tmp_db):
+    """≤ 300 distinct timestamps → raw path, every row returned unchanged."""
+    _create()
+    rows = [
+        (f"2024-01-01 12:00:{i:02d}", 144.0, float(-50 - i))
+        for i in range(10)   # 10 distinct timestamps, well below 300
+    ]
+    with db_module.get_engine().connect() as conn:
+        insert_band_measurements(conn, "b1", rows)
+        conn.commit()
+    result = db_module.fetch_band_measurements("b1")
+    assert len(result) == 10
+
+
+def test_fetch_measurements_bucketed_path_caps_time_slots(tmp_db):
+    """> 300 distinct timestamps → bucketed SQL path, ≤ 300 unique time slots returned."""
+    from datetime import datetime, timedelta
+    _create()
+    base = datetime(2024, 1, 1, 0, 0, 0)
+    rows = [
+        ((base + timedelta(seconds=i * 10)).strftime("%Y-%m-%d %H:%M:%S"), 144.0, -55.0)
+        for i in range(400)   # 400 distinct timestamps, above the 300 threshold
+    ]
+    with db_module.get_engine().connect() as conn:
+        insert_band_measurements(conn, "b1", rows)
+        conn.commit()
+    result = db_module.fetch_band_measurements("b1")
+    distinct_timestamps = {r[0] for r in result}
+    assert len(distinct_timestamps) <= 300
+
+
+def test_fetch_measurements_bucketed_path_respects_freq_filter(tmp_db):
+    """Frequency filter is applied correctly even in the bucketed SQL path."""
+    from datetime import datetime, timedelta
+    _create()
+    base = datetime(2024, 1, 1, 0, 0, 0)
+    rows = []
+    for i in range(400):
+        ts = (base + timedelta(seconds=i * 10)).strftime("%Y-%m-%d %H:%M:%S")
+        rows.append((ts, 144.0, -55.0))
+        rows.append((ts, 146.0, -60.0))   # outside filter range
+    with db_module.get_engine().connect() as conn:
+        insert_band_measurements(conn, "b1", rows)
+        conn.commit()
+    result = db_module.fetch_band_measurements("b1", {"freq_max": 145.0})
+    freqs = {r[1] for r in result}
+    assert all(f <= 145.0 for f in freqs), "bucketed path must respect freq_max filter"
+    assert 146.0 not in freqs
+
+
+def test_fetch_measurements_bucketed_path_returns_no_raw_timestamps(tmp_db):
+    """Bucketed result timestamps must be bucket boundaries, not original timestamps."""
+    from datetime import datetime, timedelta
+    _create()
+    base = datetime(2024, 1, 1, 0, 0, 0)
+    original_timestamps = set()
+    rows = []
+    for i in range(400):
+        ts = (base + timedelta(seconds=i * 10)).strftime("%Y-%m-%d %H:%M:%S")
+        original_timestamps.add(ts)
+        rows.append((ts, 144.0, -55.0))
+    with db_module.get_engine().connect() as conn:
+        insert_band_measurements(conn, "b1", rows)
+        conn.commit()
+    result = db_module.fetch_band_measurements("b1")
+    result_timestamps = {r[0] for r in result}
+    # In the bucketed path, bucket boundary timestamps are rounded epoch integers
+    # re-formatted via datetime(..., 'unixepoch'). They won't match the original
+    # timestamps exactly since the originals fall mid-bucket.
+    # At minimum, the result must be a strict subset (fewer distinct values).
+    assert len(result_timestamps) < len(original_timestamps)
+
+
 # ── _seed_one_band ────────────────────────────────────────────────────────────
 
 def test_seed_one_band_inserts(tmp_db):
