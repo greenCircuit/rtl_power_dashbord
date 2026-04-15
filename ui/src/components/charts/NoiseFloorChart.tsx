@@ -9,7 +9,7 @@ import type { NoiseFloorData } from '../../api'
 const GRANULARITIES = ['5m', '15m', '1h', '6h', '1d'] as const
 type Granularity = typeof GRANULARITIES[number]
 
-function makeDatasets(d: NoiseFloorData, gran: Granularity) {
+function makeDatasets(d: NoiseFloorData, _gran: Granularity) {
   const pts = d.buckets.length
   const radius = pts > 60 ? 0 : 3
   return [

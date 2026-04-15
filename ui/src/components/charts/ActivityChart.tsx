@@ -5,7 +5,6 @@ import { useActivity } from '../../hooks/useBandData'
 import { useChart } from '../../hooks/useChart'
 import { BASE_OPTS, darkScales } from '../../chartConfig'
 import { plasmaColor } from '../../colors'
-import type { ActivityData } from '../../api'
 
 function activityColors(pcts: number[]): string[] {
   return pcts.map(pct => {

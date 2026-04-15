@@ -4,7 +4,6 @@ import { useStore } from '../../store'
 import { useActivityTrend } from '../../hooks/useBandData'
 import { useChart } from '../../hooks/useChart'
 import { BASE_OPTS, darkScales } from '../../chartConfig'
-import type { ActivityTrendData } from '../../api'
 
 const GRANULARITIES = ['5m', '15m', '1h', '6h', '1d'] as const
 type Granularity = typeof GRANULARITIES[number]

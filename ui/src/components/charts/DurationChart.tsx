@@ -4,7 +4,6 @@ import { useStore } from '../../store'
 import { useDurations } from '../../hooks/useBandData'
 import { useChart } from '../../hooks/useChart'
 import { BASE_OPTS, darkScales } from '../../chartConfig'
-import type { DurationData } from '../../api'
 
 export default function DurationChart() {
   const bandId    = useStore(s => s.bandId)
