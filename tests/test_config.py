@@ -2,7 +2,6 @@
 
 import logging
 
-import pytest
 import yaml
 
 import app.config as config_module

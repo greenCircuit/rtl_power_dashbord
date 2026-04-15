@@ -2,8 +2,6 @@
 
 import json
 
-import pytest
-
 
 def _ok(response):
     assert response.status_code == 200, response.data

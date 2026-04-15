@@ -154,7 +154,7 @@ class BandCaptureManager:
         self._timers[device_index] = timer
 
 
-from app.config import DEMO_MODE
+from app.config import DEMO_MODE  # noqa: E402
 
 if DEMO_MODE:
     from app.demo.player import DemoBandPlayer

@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from app.config import DB_PATH, DEMO_SEED_DB
+from app.config import DB_PATH, DEMO_SEED_DB  # noqa: E402
 
 
 SCHEMA = """

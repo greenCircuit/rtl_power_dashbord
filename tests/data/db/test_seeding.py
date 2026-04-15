@@ -3,9 +3,6 @@
 import logging
 import textwrap
 
-import pytest
-
-import app.data.db as db_module
 from app.data.db import (
     _seed_one_band,
     create_band,

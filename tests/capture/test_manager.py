@@ -11,7 +11,7 @@ _run_band() which did `with self._lock:` again → permanent hang on startup.
 
 import threading
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 # ── shared band dicts ─────────────────────────────────────────────────────────
@@ -269,8 +269,6 @@ def test_run_band_registers_new_timer(manager):
 
 def test_get_status_concurrent_mutation_does_not_raise(manager):
     """get_status must not crash when another thread mutates _active concurrently."""
-    import time
-
     manager.start_active_bands([BAND_A, BAND_B])
     errors = []
     stop = threading.Event()

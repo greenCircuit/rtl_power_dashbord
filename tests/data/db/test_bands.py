@@ -1,13 +1,10 @@
 """Unit tests for app/data/db — band CRUD operations"""
 
-import pytest
-
 import app.data.db as db_module
 from app.data.db import (
     create_band,
     delete_band,
     get_band,
-    init_db,
     insert_band_measurements,
     list_bands,
     update_band,

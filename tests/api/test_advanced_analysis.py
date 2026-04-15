@@ -7,7 +7,6 @@ the data layer is tested separately; the focus is on the HTTP contract.
 
 import json
 
-import pytest
 import app.data.db as db_module
 from tests.conftest import insert_measurements
 

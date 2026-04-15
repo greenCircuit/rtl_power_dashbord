@@ -13,8 +13,6 @@ Regression tests for the T-separator bug are also here:
 
 from datetime import datetime, timedelta
 
-import pytest
-
 import app.data.db as db_module
 from app.data.db import create_band, insert_band_measurements
 

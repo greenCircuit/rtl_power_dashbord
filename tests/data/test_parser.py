@@ -11,7 +11,6 @@ from app.data.parser import build_heatmap_arrays
 # ── build_heatmap_arrays ──────────────────────────────────────────────────────
 
 def _make_df(n_times=5, n_freqs=4):
-    import numpy as np
     times = [f"2024-01-01 12:00:{i:02d}" for i in range(n_times)]
     freqs = [144.0 + i * 0.5 for i in range(n_freqs)]
     rows = []

@@ -289,7 +289,7 @@ def get_band_activity_trend(band_id: str, threshold_db: float,
 
 
 def get_band_signal_durations(band_id: str, threshold_db: float,
-                               filters: dict | None = None) -> dict | None:
+                              filters: dict | None = None) -> dict | None:
     """Return signal on-durations in seconds by scanning per-frequency time series."""
     rows = db.fetch_band_signal_raw(band_id, threshold_db, filters)
     if not rows:
@@ -331,4 +331,3 @@ def get_band_signal_durations(band_id: str, threshold_db: float,
                 durations.append(dur)
 
     return {"durations_s": durations} if durations else None
-
