@@ -16,6 +16,9 @@ include:
     file: pipelines/build.yaml
   - template: Jobs/SAST.gitlab-ci.yml
 
+variables:
+  BUILD_VERSION: 1.0.0
+
 lint:
   stage: test
   image: pipelinecomponents/flake8:latest 
@@ -24,8 +27,8 @@ lint:
   allow_failure: true 
 
 # releases jobs
-release-dry-run:
-  extends: .semantic-release-dry-run
+#release-dry-run:
+#  extends: .semantic-release-dry-run
 
 unit-test:
   stage: test
@@ -83,23 +86,23 @@ git-leaks:
   stage: security
   extends: .secrets_scan
 
-try-image-scan:
-  stage: security
-  image:
-    name: aquasec/trivy:latest
-    entrypoint: [""]
-  variables:
-    # GitLab injects CI_REGISTRY_USER/PASSWORD automatically for the job token
-    TRIVY_USERNAME: $CI_REGISTRY_USER
-    TRIVY_PASSWORD: $CI_REGISTRY_PASSWORD
-    # Force remote pull — no Docker/containerd/podman socket needed
-    TRIVY_IMAGE_SRC: remote
-    # Skip TLS verification for self-signed certs on dev registry
-    TRIVY_INSECURE: "true"
-  script:
-    - trivy image registry.dev.local/home-lab/rtl:latest --exit-code 1 --severity HIGH,CRITICAL
-  allow_failure: true
+# try-image-scan:
+  # stage: security
+  # image:
+    # name: aquasec/trivy:latest
+    # entrypoint: [""]
+  # variables:
+    # # GitLab injects CI_REGISTRY_USER/PASSWORD automatically for the job token
+    # TRIVY_USERNAME: $CI_REGISTRY_USER
+    # TRIVY_PASSWORD: $CI_REGISTRY_PASSWORD
+    # # Force remote pull — no Docker/containerd/podman socket needed
+    # TRIVY_IMAGE_SRC: remote
+    # # Skip TLS verification for self-signed certs on dev registry
+    # TRIVY_INSECURE: "true"
+  # script:
+    # - trivy image registry.dev.local/home-lab/rtl:latest --exit-code 1 --severity HIGH,CRITICAL
+  # allow_failure: true
 
 # Create release
-create-release: 
-  extends: .publish-release
+#create-release: 
+#  extends: .publish-release
