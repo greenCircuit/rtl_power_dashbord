@@ -1,0 +1,13 @@
+tagFormat: "${version}"
+plugins:
+  - "@semantic-release/commit-analyzer"
+  - ["@semantic-release/exec", {
+      # This tells semantic-release to run your script and pass it the new version number
+      "prepareCmd": "./update-changelog.sh ${nextRelease.version}"
+    }]
+  - ["@semantic-release/git", {
+      # This tells semantic-release to commit the changelog back to your repo
+      "assets": ["CHANGELOG.md"],
+      "message": "chore(release): bump version to ${nextRelease.version} [skip ci]"
+    }]
+
