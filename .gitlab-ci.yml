@@ -54,6 +54,7 @@ dead-code:
   allow_failure: true
 
 img-base:
+  needs: []
   extends: .create_image
 
 # Security scans
