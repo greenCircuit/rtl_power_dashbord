@@ -10,14 +10,19 @@ from app.data.parser import (
     get_band_activity_trend,
     get_band_signal_durations,
 )
-from ._helpers import api_bp, _parse_filters
+from ._helpers import (
+    api_bp, _parse_filters, _parse_float_arg, _parse_int_arg, _parse_granularity,
+)
 
 
 @api_bp.route("/bands/<band_id>/tod-activity", methods=["GET"])
 def band_tod_activity(band_id: str):
-    filters   = _parse_filters(request.args)
-    threshold = float(request.args.get("threshold", 0))
-    data      = get_band_tod_activity(band_id, threshold, filters)
+    try:
+        filters   = _parse_filters(request.args)
+        threshold = _parse_float_arg(request.args, "threshold", default=0.0)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    data = get_band_tod_activity(band_id, threshold, filters)
     if data is None:
         return jsonify({"error": "no data"}), 404
     return jsonify(data)
@@ -25,8 +30,11 @@ def band_tod_activity(band_id: str):
 
 @api_bp.route("/bands/<band_id>/power-histogram", methods=["GET"])
 def band_power_histogram(band_id: str):
-    filters = _parse_filters(request.args)
-    data    = get_band_power_histogram(band_id, filters)
+    try:
+        filters = _parse_filters(request.args)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    data = get_band_power_histogram(band_id, filters)
     if data is None:
         return jsonify({"error": "no data"}), 404
     return jsonify(data)
@@ -34,10 +42,13 @@ def band_power_histogram(band_id: str):
 
 @api_bp.route("/bands/<band_id>/top-channels", methods=["GET"])
 def band_top_channels(band_id: str):
-    filters   = _parse_filters(request.args)
-    threshold = float(request.args.get("threshold", 0))
-    limit     = int(request.args.get("limit", 10))
-    data      = get_band_top_channels(band_id, threshold, limit, filters)
+    try:
+        filters   = _parse_filters(request.args)
+        threshold = _parse_float_arg(request.args, "threshold", default=0.0)
+        limit     = _parse_int_arg(request.args, "limit", default=10, min_val=1, max_val=100)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    data = get_band_top_channels(band_id, threshold, limit, filters)
     if data is None:
         return jsonify({"error": "no data"}), 404
     return jsonify(data)
@@ -45,10 +56,13 @@ def band_top_channels(band_id: str):
 
 @api_bp.route("/bands/<band_id>/activity-trend", methods=["GET"])
 def band_activity_trend(band_id: str):
-    filters     = _parse_filters(request.args)
-    threshold   = float(request.args.get("threshold", 0))
-    granularity = request.args.get("granularity", "1h")
-    data        = get_band_activity_trend(band_id, threshold, granularity, filters)
+    try:
+        filters     = _parse_filters(request.args)
+        threshold   = _parse_float_arg(request.args, "threshold", default=0.0)
+        granularity = _parse_granularity(request.args)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    data = get_band_activity_trend(band_id, threshold, granularity, filters)
     if data is None:
         return jsonify({"error": "no data"}), 404
     return jsonify(data)
@@ -56,9 +70,12 @@ def band_activity_trend(band_id: str):
 
 @api_bp.route("/bands/<band_id>/signal-durations", methods=["GET"])
 def band_signal_durations(band_id: str):
-    filters   = _parse_filters(request.args)
-    threshold = float(request.args.get("threshold", 0))
-    data      = get_band_signal_durations(band_id, threshold, filters)
+    try:
+        filters   = _parse_filters(request.args)
+        threshold = _parse_float_arg(request.args, "threshold", default=0.0)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    data = get_band_signal_durations(band_id, threshold, filters)
     if data is None:
         return jsonify({"error": "no data"}), 404
 
@@ -81,8 +98,11 @@ def band_signal_durations(band_id: str):
 
 @api_bp.route("/analysis/crossband-timeline", methods=["GET"])
 def crossband_timeline():
-    filters   = _parse_filters(request.args)
-    threshold = float(request.args.get("threshold", 0))
+    try:
+        filters   = _parse_filters(request.args)
+        threshold = _parse_float_arg(request.args, "threshold", default=0.0)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     ids_param = request.args.get("band_ids", "")
     all_bands = db.list_bands()
     band_ids  = [b for b in ids_param.split(",") if b] if ids_param else [b["id"] for b in all_bands]
@@ -102,9 +122,12 @@ def crossband_timeline():
 
 @api_bp.route("/analysis/overview", methods=["GET"])
 def bands_overview():
-    threshold = float(request.args.get("threshold", 0))
-    bands     = db.list_bands()
-    result    = []
+    try:
+        threshold = _parse_float_arg(request.args, "threshold", default=0.0)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    bands  = db.list_bands()
+    result = []
     for b in bands:
         stats = db.fetch_band_latest_activity(b["id"], threshold)
         pct   = 0.0

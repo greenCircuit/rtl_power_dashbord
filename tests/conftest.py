@@ -1,20 +1,21 @@
 import pytest
 import app.data.db as db_module
+import app.data.db._engine as db_engine_module
 from app.data.db import init_db
 
 
 def _reset_engine(monkeypatch):
     """Reset the cached SQLAlchemy engine so the next call to get_engine()
     creates a fresh one pointed at the monkeypatched DB_PATH."""
-    monkeypatch.setattr(db_module, "_engine", None)
-    monkeypatch.setattr(db_module, "_Session", None)
+    monkeypatch.setattr(db_engine_module, "_engine", None)
+    monkeypatch.setattr(db_engine_module, "_session_factory", None)
 
 
 @pytest.fixture
 def tmp_db(tmp_path, monkeypatch):
     """Redirect all DB operations to a temp file and initialise the schema."""
     db_path = tmp_path / "test.db"
-    monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(db_engine_module, "DB_PATH", db_path)
     _reset_engine(monkeypatch)
     init_db()
     return db_path
@@ -28,7 +29,7 @@ def flask_client(tmp_path, monkeypatch):
     - YAML band seeding is skipped so tests control all data.
     """
     db_path = tmp_path / "test.db"
-    monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(db_engine_module, "DB_PATH", db_path)
     _reset_engine(monkeypatch)
 
     import app as app_module

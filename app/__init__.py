@@ -3,7 +3,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from flask import Flask, send_from_directory
+from flask import Flask, g, send_from_directory
 
 from app.config import configure_logging, BANDS_CONFIG, DEMO_MODE
 from app.data.db import init_db, seed_bands_from_yaml, list_bands
@@ -56,6 +56,15 @@ def create_app() -> Flask:
     log.info("Startup complete")
 
     server = Flask(__name__, static_folder=None)
+
+    @server.teardown_appcontext
+    def _teardown_db_session(exc: BaseException | None) -> None:
+        """Close (and rollback on error) the per-request DB session."""
+        sess = g.pop("_db_session", None)
+        if sess is not None:
+            if exc is not None:
+                sess.rollback()
+            sess.close()
 
     from app.api.routes import api_bp
     server.register_blueprint(api_bp)

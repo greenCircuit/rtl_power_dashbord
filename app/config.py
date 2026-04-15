@@ -48,7 +48,10 @@ def load_cleanup_config() -> dict:
             "db_max_size_mb": int(section.get("db_max_size_mb",  defaults["db_max_size_mb"])),
             "max_time_hrs":   int(section.get("max_time_hrs",    defaults["max_time_hrs"])),
         }
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Failed to load cleanup config from %s: %s — using defaults", BANDS_CONFIG, exc
+        )
         return defaults
 
 

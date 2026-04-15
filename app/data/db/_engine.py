@@ -9,6 +9,8 @@ from sqlalchemy import (
     Boolean, Column, Float, Index, Integer, String, Text,
     create_engine, event,
 )
+from contextlib import contextmanager
+
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import BANDS_CONFIG, DB_PATH  # noqa: F401 — re-exported for sub-modules
@@ -54,7 +56,7 @@ class BandMeasurement(Base):
 # ── Engine / session factory ──────────────────────────────────────────────────
 
 _engine = None
-_Session: sessionmaker | None = None
+_session_factory: sessionmaker | None = None
 
 
 def get_engine():
@@ -78,11 +80,36 @@ def get_engine():
     return _engine
 
 
-def _session() -> Session:
-    global _Session
-    if _Session is None:
-        _Session = sessionmaker(bind=get_engine())
-    return _Session()
+def _make_session() -> Session:
+    global _session_factory
+    if _session_factory is None:
+        _session_factory = sessionmaker(bind=get_engine())
+    return _session_factory()
+
+
+@contextmanager
+def _session():
+    """Yield a SQLAlchemy session.
+
+    Inside a Flask request context: reuses the single session stored on
+    ``flask.g`` so all DB calls within one request share one connection.
+    Cleanup is handled by the ``teardown_appcontext`` hook in
+    ``app/__init__.py``.
+
+    Outside a Flask context (startup, background threads, unit tests without
+    a test client): opens a fresh session and closes it on context exit.
+    """
+    from flask import g, has_app_context  # lazy import — avoids coupling at module load
+    if has_app_context():
+        if not hasattr(g, "_db_session"):
+            g._db_session = _make_session()
+        yield g._db_session
+    else:
+        sess = _make_session()
+        try:
+            yield sess
+        finally:
+            sess.close()
 
 
 # ── Schema init ───────────────────────────────────────────────────────────────

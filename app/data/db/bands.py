@@ -82,21 +82,29 @@ def seed_bands_from_yaml(config_path: Path = BANDS_CONFIG) -> None:
     with open(config_path) as fh:
         cfg = yaml.safe_load(fh)
     bands = cfg.get("bands", []) if cfg else []
+    _REQUIRED = ("id", "name", "freq_start", "freq_end", "freq_step")
     with _session() as sess:
         for b in bands:
-            if sess.get(Band, b["id"]) is None:
-                sess.add(Band(
-                    id=str(b["id"]),
-                    name=str(b["name"]),
-                    freq_start=str(b["freq_start"]),
-                    freq_end=str(b["freq_end"]),
-                    freq_step=str(b["freq_step"]),
-                    interval_s=int(b.get("interval_s", 10)),
-                    min_power=float(b.get("min_power", 2.0)),
-                    device_index=int(b.get("device_index", 0)),
-                    is_active=bool(b.get("is_active", False)),
-                ))
-                log.info("Seeded band: %s (%s)", b["id"], b["name"])
+            missing = [k for k in _REQUIRED if k not in b]
+            if missing:
+                log.warning("Skipping malformed band entry (missing keys: %s): %r", missing, b)
+                continue
+            try:
+                if sess.get(Band, b["id"]) is None:
+                    sess.add(Band(
+                        id=str(b["id"]),
+                        name=str(b["name"]),
+                        freq_start=str(b["freq_start"]),
+                        freq_end=str(b["freq_end"]),
+                        freq_step=str(b["freq_step"]),
+                        interval_s=int(b.get("interval_s", 10)),
+                        min_power=float(b.get("min_power", 2.0)),
+                        device_index=int(b.get("device_index", 0)),
+                        is_active=bool(b.get("is_active", False)),
+                    ))
+                    log.info("Seeded band: %s (%s)", b["id"], b["name"])
+            except Exception as exc:
+                log.warning("Skipping band entry %r due to error: %s", b.get("id"), exc)
         sess.commit()
 
 

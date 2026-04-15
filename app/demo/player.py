@@ -64,14 +64,12 @@ def _replay(band_id: str, interval_s: float, stop_event: threading.Event) -> Non
     while not stop_event.is_set():
         sweep = sweeps[idx % len(sweeps)]
         idx += 1
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         rows = [(band_id, ts, freq, power) for freq, power in sweep]
         try:
-            conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.executemany(_INSERT, rows)
-            conn.commit()
-            conn.close()
+            with sqlite3.connect(str(DB_PATH), check_same_thread=False) as conn:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.executemany(_INSERT, rows)
             log.debug("Demo: wrote %d rows for band %r at %s", len(rows), band_id, ts)
         except Exception as exc:
             log.warning("Demo write error for band %r: %s", band_id, exc)

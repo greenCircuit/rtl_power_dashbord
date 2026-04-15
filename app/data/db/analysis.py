@@ -5,16 +5,14 @@ from sqlalchemy import Integer, case, func
 from ._engine import BandMeasurement, _session, _apply_filters
 
 # Supported granularity labels → bucket width in seconds.
-# Legacy "hour"/"day" strings are included for backwards compatibility.
-_GRANULARITY_SECONDS: dict[str, int] = {
-    "5m":   300,
-    "15m":  900,
-    "1h":   3600,
-    "6h":   21600,
-    "1d":   86400,
-    # legacy aliases
-    "hour": 3600,
-    "day":  86400,
+# This is the single source of truth; app/api/routes/_helpers.py derives
+# VALID_GRANULARITIES from these keys at import time.
+GRANULARITY_SECONDS: dict[str, int] = {
+    "15m": 900,
+    "30m": 1800,
+    "1h":  3600,
+    "6h":  21600,
+    "1d":  86400,
 }
 
 
@@ -76,7 +74,7 @@ def fetch_band_activity_trend(band_id: str, threshold_db: float,
 
     Returns ``[{bucket, active, total}]``.
     """
-    width = _GRANULARITY_SECONDS.get(granularity, 3600)
+    width = GRANULARITY_SECONDS.get(granularity, 3600)
     ts_epoch = func.strftime("%s", BandMeasurement.timestamp)
     bucket_expr = func.datetime(
         ts_epoch - ts_epoch % width,
@@ -104,7 +102,7 @@ def fetch_band_power_envelope(band_id: str, granularity: str = "1h",
     [{bucket, min_db, mean_db, max_db}] — used for noise-floor and peak-power
     trend charts.  *granularity* uses the same keys as fetch_band_activity_trend.
     """
-    width = _GRANULARITY_SECONDS.get(granularity, 3600)
+    width = GRANULARITY_SECONDS.get(granularity, 3600)
     ts_epoch = func.strftime("%s", BandMeasurement.timestamp)
     bucket_expr = func.datetime(
         ts_epoch - ts_epoch % width,

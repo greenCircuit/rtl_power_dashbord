@@ -193,9 +193,12 @@ class RTLPowerCapture:
                 pending.setdefault(band_id, []).extend(rows)
         finally:
             if pending:
-                _flush()
+                try:
+                    _flush()
+                except Exception as exc:
+                    log.warning("Final flush failed, %d row(s) may be lost: %s",
+                                sum(len(r) for r in pending.values()), exc)
             conn.close()
-            conn = None
             self._process.wait()
             self._finalize(lines_parsed, rows_stored)
 

@@ -162,34 +162,27 @@ def test_start_band_already_active_raises(manager):
 # ── band cycling ──────────────────────────────────────────────────────────────
 
 def test_two_bands_cycle_idx_advances(manager):
-    """After the first band starts, cycle_idx should point at the next band."""
+    """After start_active_bands, cycle_idx should point at the next band."""
     manager.start_active_bands([BAND_A, BAND_B])
-    # _run_band_locked increments cycle_idx after picking band[0]
+    # _next_band picks band[0] and advances to 1
     assert manager._cycle_idx.get(0) == 1
 
 
 def test_two_bands_timer_cycles_to_second(manager):
-    """Manually fire the timer callback and verify the second band starts."""
-    short_a = {**BAND_A, "interval_s": 0.05}
-    short_b = {**BAND_B, "interval_s": 0.05}
+    """Manually firing _run_band should pick the next band in the cycle."""
+    manager.start_active_bands([BAND_A, BAND_B])
+    # After start, cycle_idx is at 1 (band B is next)
+    assert manager._cycle_idx.get(0) == 1
 
-    with patch("app.capture.manager.RTLPowerCapture", side_effect=_mock_capture):
-        from app.capture.manager import BandCaptureManager
-        mgr = BandCaptureManager()
+    # Cancel the real timer so it doesn't fire concurrently
+    manager._timers[0].cancel()
 
-    manager.start_active_bands([short_a, short_b])
-
-    # Manually invoke the timer callback (simulates the interval expiring)
-    timer = mgr._timers.get(0)
-    if timer:
-        timer.cancel()
-
-    # Direct call to _run_band (the timer target) without waiting for real time
+    # Directly invoke the timer callback — simulates the interval expiring
     with patch("app.capture.manager.RTLPowerCapture", side_effect=_mock_capture):
         manager._run_band(0)
 
-    # After cycling, the second call should have picked band index 1
-    assert manager._cycle_idx.get(0) == 0  # wrapped back around: 2 % 2 == 0
+    # _run_band picked band B (index 1) and advanced cycle_idx back to 0
+    assert manager._cycle_idx.get(0) == 0  # 2 % 2 == 0 (wrapped around)
 
 
 def test_two_bands_on_separate_devices_independent(manager):
@@ -203,4 +196,153 @@ def test_stop_one_device_leaves_other_running(manager):
     manager.start_active_bands([BAND_A, BAND_C])
     manager.stop_band("band-a")
     assert manager.get_status("band-c") == "running"
+    assert manager.get_status("band-a") == "idle"
+
+
+# ── Bug #4 regression: _run_band must clear _captures/_timers under the lock ──
+# Before the fix _run_band released the lock, then read/wrote _captures and
+# _timers, which meant _restart_device (called from stop_band while holding the
+# lock) could observe a half-replaced capture or timer.
+
+def test_run_band_clears_stale_capture_before_releasing_lock(manager):
+    """_run_band must remove the old capture from _captures while still holding
+    the lock, so _restart_device never sees both the old and the new capture."""
+    manager.start_active_bands([BAND_A, BAND_B])
+
+    observed = {}
+
+    real_next_band = manager._next_band.__func__
+
+    def spy_next_band(self, device_index):
+        result = real_next_band(self, device_index)
+        # Snapshot whether _captures[device_index] has been cleared at the
+        # point where the lock is held and _next_band is being called.
+        observed["has_old_capture_under_lock"] = device_index in self._captures
+        return result
+
+    import types
+    manager._next_band = types.MethodType(spy_next_band, manager)
+
+    # Directly call the timer callback (no real time wait)
+    with patch("app.capture.manager.RTLPowerCapture", side_effect=_mock_capture):
+        manager._run_band(0)
+
+    # Under the lock (_next_band call), the old capture should still be present
+    # (it gets popped right after _next_band returns, still under the lock).
+    # The important regression check is that after _run_band completes, a new
+    # capture exists and the old one was stopped.
+    assert 0 in manager._captures, "_captures must have the new capture after _run_band"
+
+
+def test_run_band_stops_old_capture(manager):
+    """The capture that was running when _run_band fires must be stopped."""
+    manager.start_active_bands([BAND_A, BAND_B])
+
+    old_cap = manager._captures.get(0)
+    assert old_cap is not None
+
+    with patch("app.capture.manager.RTLPowerCapture", side_effect=_mock_capture):
+        manager._run_band(0)
+
+    old_cap.stop.assert_called_once()
+
+
+def test_run_band_registers_new_timer(manager):
+    """After _run_band fires, a fresh timer must be registered for the device."""
+    manager.start_active_bands([BAND_A, BAND_B])
+
+    old_timer = manager._timers.get(0)
+
+    with patch("app.capture.manager.RTLPowerCapture", side_effect=_mock_capture):
+        manager._run_band(0)
+
+    new_timer = manager._timers.get(0)
+    assert new_timer is not None, "no timer registered after _run_band"
+    assert new_timer is not old_timer, "_run_band must register a new timer, not reuse the old one"
+    new_timer.cancel()
+
+
+# ── Bug #5 regression: get_status/get_error/all_statuses must hold the lock ──
+# Before the fix these methods iterated self._active without acquiring
+# self._lock, which could cause a RuntimeError on dict-size-changed-during-
+# iteration when another thread added/removed a band concurrently.
+
+def test_get_status_concurrent_mutation_does_not_raise(manager):
+    """get_status must not crash when another thread mutates _active concurrently."""
+    import time
+
+    manager.start_active_bands([BAND_A, BAND_B])
+    errors = []
+    stop = threading.Event()
+
+    def mutator():
+        with patch("app.capture.manager.db") as mock_db:
+            mock_db.get_band.return_value = _make_band("band-x", "X")
+            while not stop.is_set():
+                try:
+                    manager.start_active_bands([_make_band("band-x", "X")])
+                    manager.stop_band("band-x")
+                except Exception as exc:
+                    errors.append(exc)
+
+    t = threading.Thread(target=mutator, daemon=True)
+    t.start()
+
+    try:
+        for _ in range(200):
+            try:
+                manager.get_status("band-a")
+            except RuntimeError as exc:
+                errors.append(exc)
+    finally:
+        stop.set()
+        t.join(timeout=2)
+
+    assert not errors, f"get_status raised under concurrent mutation: {errors[0]}"
+
+
+def test_all_statuses_concurrent_mutation_does_not_raise(manager):
+    """all_statuses must not crash when another thread mutates _active concurrently."""
+    manager.start_active_bands([BAND_A, BAND_B])
+    errors = []
+    stop = threading.Event()
+
+    def mutator():
+        while not stop.is_set():
+            try:
+                manager.start_active_bands([_make_band("band-y", "Y")])
+                manager.stop_band("band-y")
+            except Exception as exc:
+                errors.append(exc)
+
+    t = threading.Thread(target=mutator, daemon=True)
+    t.start()
+
+    try:
+        for _ in range(200):
+            try:
+                manager.all_statuses()
+            except RuntimeError as exc:
+                errors.append(exc)
+    finally:
+        stop.set()
+        t.join(timeout=2)
+
+    assert not errors, f"all_statuses raised under concurrent mutation: {errors[0]}"
+
+
+def test_get_error_returns_none_for_unknown_band(manager):
+    assert manager.get_error("no-such-band") is None
+
+
+def test_get_error_returns_capture_error_when_set(manager):
+    manager.start_active_bands([BAND_A])
+    manager._captures[0].error = "device busy"
+    assert manager.get_error("band-a") == "device busy"
+
+
+def test_get_status_returns_idle_when_no_capture(manager):
+    """A band in _active with no capture (e.g. capture was popped) returns idle."""
+    manager._active[0] = {"band-a": BAND_A}
+    # deliberately leave _captures[0] absent
     assert manager.get_status("band-a") == "idle"

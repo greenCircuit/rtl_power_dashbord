@@ -1,46 +1,11 @@
 """Unit tests for app/data/parser.py"""
 
+import json
+
 import pandas as pd
 import pytest
 
-from app.data.parser import _parse_csv_row, build_heatmap_arrays
-
-
-# ── _parse_csv_row ────────────────────────────────────────────────────────────
-
-def _parts(line: str) -> list:
-    return [p.strip() for p in line.split(",")]
-
-
-def test_parse_csv_row_valid():
-    line = "2024-01-15, 12:00:00, 144000000, 146000000, 25000, 1, -55.0, -60.0, -65.0"
-    result = _parse_csv_row(_parts(line))
-    assert result is not None
-    timestamp, hz_low, hz_high, db_values = result
-    assert timestamp == "2024-01-15 12:00:00"
-    assert hz_low == 144_000_000.0
-    assert hz_high == 146_000_000.0
-    assert db_values == [-55.0, -60.0, -65.0]
-
-
-def test_parse_csv_row_too_few_parts():
-    assert _parse_csv_row(["2024-01-15", "12:00:00", "144000000"]) is None
-
-
-def test_parse_csv_row_bad_float():
-    parts = ["2024-01-15", "12:00:00", "NOTAFREQ", "146000000", "25000", "1", "-55.0"]
-    assert _parse_csv_row(parts) is None
-
-
-def test_parse_csv_row_empty_db_values():
-    parts = ["2024-01-15", "12:00:00", "144000000", "146000000", "25000", "1", "", ""]
-    assert _parse_csv_row(parts) is None
-
-
-def test_parse_csv_row_timestamp_concatenated():
-    parts = ["2024-06-01", "09:30:00", "462500000", "462800000", "12500", "1", "-42.0"]
-    result = _parse_csv_row(parts)
-    assert result[0] == "2024-06-01 09:30:00"
+from app.data.parser import build_heatmap_arrays
 
 
 # ── build_heatmap_arrays ──────────────────────────────────────────────────────
@@ -124,7 +89,6 @@ def test_build_heatmap_arrays_z_nulls_for_sparse_data():
 
 def test_build_heatmap_arrays_z_valid_json():
     """Output must serialise to valid JSON (no NaN/Inf tokens)."""
-    import json
     rows = [
         {"timestamp": pd.Timestamp("2024-01-01 12:00:00"), "frequency_mhz": 144.0, "power_db": -55.0},
         {"timestamp": pd.Timestamp("2024-01-01 12:00:10"), "frequency_mhz": 145.0, "power_db": -60.0},

@@ -7,7 +7,6 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-from pathlib import Path
 
 from app.data import db
 
@@ -333,39 +332,3 @@ def get_band_signal_durations(band_id: str, threshold_db: float,
 
     return {"durations_s": durations} if durations else None
 
-
-# ── Legacy CSV migration ──────────────────────────────────────────────────────
-
-def _parse_csv_row(parts: list) -> tuple | None:
-    """Parse pre-split CSV parts into (timestamp, hz_low, hz_high, db_values) or None."""
-    if len(parts) < 7:
-        return None
-    try:
-        timestamp = f"{parts[0]} {parts[1]}"
-        hz_low    = float(parts[2])
-        hz_high   = float(parts[3])
-        db_values = [float(v) for v in parts[6:] if v]
-    except (ValueError, IndexError):
-        return None
-    if not db_values:
-        return None
-    return timestamp, hz_low, hz_high, db_values
-
-
-def _parse_rtl_power_csv(filepath: Path) -> pd.DataFrame | None:
-    rows = []
-    with open(filepath, errors="replace") as fh:
-        for raw_line in fh:
-            line = raw_line.strip()
-            if not line:
-                continue
-            parsed = _parse_csv_row([p.strip() for p in line.split(",")])
-            if parsed is None:
-                continue
-            timestamp, hz_low, hz_high, db_values = parsed
-            freqs_mhz = np.linspace(hz_low, hz_high, len(db_values)) / 1e6
-            for freq, db_val in zip(freqs_mhz, db_values):
-                rows.append((timestamp, float(freq), float(db_val)))
-    if not rows:
-        return None
-    return pd.DataFrame(rows, columns=["timestamp", "frequency_mhz", "power_db"])

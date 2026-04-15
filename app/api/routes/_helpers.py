@@ -4,9 +4,14 @@ import subprocess
 
 from flask import Blueprint
 
+from app.data.db import GRANULARITY_SECONDS
+
 log = logging.getLogger(__name__)
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
+
+# Derived from the DB layer's GRANULARITY_SECONDS so the two can never diverge.
+VALID_GRANULARITIES = frozenset(GRANULARITY_SECONDS)
 
 _device_cache: list[dict] | None = None
 
@@ -56,6 +61,46 @@ def _list_rtl_devices() -> list[dict]:
     return [{"index": k, "name": v} for k, v in sorted(devices.items())]
 
 
+def _parse_float_arg(args, name: str, default: float) -> float:
+    """Return a float query param. Raise ValueError with a descriptive message on bad input."""
+    val = args.get(name)
+    if val is None or val == "":
+        return default
+    try:
+        return float(val)
+    except ValueError:
+        raise ValueError(f"'{name}' must be a number, got {val!r}")
+
+
+def _parse_int_arg(
+    args, name: str, default: int,
+    min_val: int | None = None, max_val: int | None = None,
+) -> int:
+    """Return an int query param with optional bounds. Raise ValueError on bad input."""
+    val = args.get(name)
+    if val is None or val == "":
+        return default
+    try:
+        result = int(val)
+    except ValueError:
+        raise ValueError(f"'{name}' must be an integer, got {val!r}")
+    if min_val is not None and result < min_val:
+        raise ValueError(f"'{name}' must be >= {min_val}, got {result}")
+    if max_val is not None and result > max_val:
+        raise ValueError(f"'{name}' must be <= {max_val}, got {result}")
+    return result
+
+
+def _parse_granularity(args, default: str = "1h") -> str:
+    """Return a validated granularity query param. Raise ValueError for unknown values."""
+    val = args.get("granularity", default)
+    if val not in VALID_GRANULARITIES:
+        raise ValueError(
+            f"'granularity' must be one of {sorted(VALID_GRANULARITIES)}, got {val!r}"
+        )
+    return val
+
+
 def _parse_filters(args) -> dict:
     filters = {}
     for key in ("freq_min", "freq_max"):
@@ -64,7 +109,7 @@ def _parse_filters(args) -> dict:
             try:
                 filters[key] = float(val)
             except ValueError:
-                pass
+                raise ValueError(f"'{key}' must be a number, got {val!r}")
     for key in ("time_min", "time_max"):
         val = args.get(key)
         if val:
@@ -74,5 +119,5 @@ def _parse_filters(args) -> dict:
         try:
             filters["power_min"] = float(val)
         except ValueError:
-            pass
+            raise ValueError(f"'power_min' must be a number, got {val!r}")
     return filters

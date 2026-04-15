@@ -64,32 +64,36 @@ class BandCaptureManager:
                 self._restart_device(device)
 
     def get_status(self, band_id: str) -> str:
-        for device, bands in self._active.items():
-            if band_id in bands:
-                cap = self._captures.get(device)
-                return cap.status if cap else "idle"
+        with self._lock:
+            for device, bands in self._active.items():
+                if band_id in bands:
+                    cap = self._captures.get(device)
+                    return cap.status if cap else "idle"
         return "idle"
 
     def get_error(self, band_id: str) -> str | None:
-        for device, bands in self._active.items():
-            if band_id in bands:
-                cap = self._captures.get(device)
-                return cap.error if cap else None
+        with self._lock:
+            for device, bands in self._active.items():
+                if band_id in bands:
+                    cap = self._captures.get(device)
+                    return cap.error if cap else None
         return None
 
     def all_statuses(self) -> dict[str, str]:
-        result = {}
-        for device, bands in self._active.items():
-            cap = self._captures.get(device)
-            status = cap.status if cap else "idle"
-            for band_id in bands:
-                result[band_id] = status
+        with self._lock:
+            result = {}
+            for device, bands in self._active.items():
+                cap = self._captures.get(device)
+                status = cap.status if cap else "idle"
+                for band_id in bands:
+                    result[band_id] = status
         return result
 
     # ── internal ──────────────────────────────────────────────────────────────
 
     def _restart_device(self, device_index: int) -> None:
-        """Cancel any pending cycle timer, stop current capture, start cycle."""
+        """Cancel any pending cycle timer, stop current capture, start cycle.
+        Must be called with self._lock held."""
         timer = self._timers.pop(device_index, None)
         if timer:
             timer.cancel()
@@ -98,57 +102,44 @@ class BandCaptureManager:
         if cap:
             cap.stop()
 
-        bands = list(self._active.get(device_index, {}).values())
-        if not bands:
+        self._cycle_idx[device_index] = 0
+        band = self._next_band(device_index)
+        if band is None:
             self._captures.pop(device_index, None)
             log.info("Device %d has no active bands — capture stopped", device_index)
             return
 
-        self._cycle_idx[device_index] = 0
-        # _restart_device is called holding self._lock; start first band directly
-        self._run_band_locked(device_index)
+        self._start_capture(device_index, band)
 
     def _run_band(self, device_index: int) -> None:
-        """Start the current band in the cycle (called without self._lock)."""
+        """Timer callback — advance the cycle and start the next band."""
         with self._lock:
-            bands = list(self._active.get(device_index, {}).values())
-            if not bands:
+            band = self._next_band(device_index)
+            if band is None:
                 return
-            idx = self._cycle_idx.get(device_index, 0) % len(bands)
-            band = bands[idx]
-            self._cycle_idx[device_index] = (idx + 1) % len(bands)
+            cap = self._captures.get(device_index)
+            # Clear stale references before releasing the lock so that
+            # _restart_device cannot see a half-replaced capture/timer.
+            self._captures.pop(device_index, None)
+            self._timers.pop(device_index, None)
 
-        # Stop previous capture
-        cap = self._captures.get(device_index)
         if cap:
             cap.stop()
 
-        log.info("Device %d → scanning [%s] %s", device_index, band["id"], band["name"])
-        cap = RTLPowerCapture()
-        try:
-            cap.start([band], device_index)
-        except RuntimeError as exc:
-            log.warning("Failed to start [%s]: %s", band["id"], exc)
-        self._captures[device_index] = cap
+        self._start_capture(device_index, band)
 
-        # Schedule switch to next band after this band's interval
-        timer = threading.Timer(
-            band["interval_s"], self._run_band, args=[device_index]
-        )
-        timer.daemon = True
-        timer.start()
-        with self._lock:
-            self._timers[device_index] = timer
-
-    def _run_band_locked(self, device_index: int) -> None:
-        """Start first band — called while self._lock is already held."""
+    def _next_band(self, device_index: int) -> dict | None:
+        """Pick and advance to the next band in the cycle.
+        Must be called with self._lock held."""
         bands = list(self._active.get(device_index, {}).values())
         if not bands:
-            return
+            return None
         idx = self._cycle_idx.get(device_index, 0) % len(bands)
-        band = bands[idx]
         self._cycle_idx[device_index] = (idx + 1) % len(bands)
+        return bands[idx]
 
+    def _start_capture(self, device_index: int, band: dict) -> None:
+        """Launch a capture for *band* on *device_index* and schedule the next cycle."""
         log.info("Device %d → scanning [%s] %s", device_index, band["id"], band["name"])
         cap = RTLPowerCapture()
         try:
@@ -157,9 +148,7 @@ class BandCaptureManager:
             log.warning("Failed to start [%s]: %s", band["id"], exc)
         self._captures[device_index] = cap
 
-        timer = threading.Timer(
-            band["interval_s"], self._run_band, args=[device_index]
-        )
+        timer = threading.Timer(band["interval_s"], self._run_band, args=[device_index])
         timer.daemon = True
         timer.start()
         self._timers[device_index] = timer
