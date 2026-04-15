@@ -32,7 +32,7 @@ lint:
 
 unit-test:
   stage: test
-  image: registry.dev.local/home-lab/rtl:latest
+  image: registry.dev.local/home-lab/rtl_power_dashboard:latest
   script:
     - pip install -r requirements.txt --quiet
     - coverage run -m pytest tests/ -v
