@@ -8,14 +8,32 @@ import yaml
 # Locally it defaults to <project_root>/data so no extra setup is needed.
 _default = Path(__file__).resolve().parent.parent / "data"
 DATA_DIR = Path(os.environ.get("DATA_DIR", _default))
-DB_PATH = DATA_DIR / "rtl_power.db"
 
 # Main config file — override with BANDS_CONFIG env var (e.g. in Docker)
 _default_config = Path(__file__).resolve().parent.parent / "config.yaml"
 BANDS_CONFIG = Path(os.environ.get("BANDS_CONFIG", _default_config))
 
-# Demo mode — set DEMO_MODE=true to replay recorded data without hardware
-DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() == "true"
+
+def _read_demo_mode() -> bool:
+    """Return DEMO_MODE: env var wins; falls back to DEMO_MODE key in config.yaml."""
+    env = os.environ.get("DEMO_MODE")
+    if env is not None:
+        return env.lower() == "true"
+    try:
+        with open(BANDS_CONFIG) as fh:
+            cfg = yaml.safe_load(fh) or {}
+        return str(cfg.get("DEMO_MODE", "false")).lower() == "true"
+    except Exception:
+        return False
+
+
+# Demo mode — enable via DEMO_MODE=true env var or DEMO_MODE: true in config.yaml.
+# Uses a separate database (demo.db) so live data is never touched.
+DEMO_MODE = _read_demo_mode()
+_db_name  = "demo.db" if DEMO_MODE else "rtl_power.db"
+DB_PATH   = DATA_DIR / _db_name
+
+# Legacy seed DB used by demo/export_seed.py
 _default_seed = Path(__file__).resolve().parent.parent / "demo" / "seed.db"
 DEMO_SEED_DB = Path(os.environ.get("DEMO_SEED_DB", _default_seed))
 

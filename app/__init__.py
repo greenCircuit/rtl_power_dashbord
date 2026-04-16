@@ -5,7 +5,7 @@ from pathlib import Path
 
 from flask import Flask, g, send_from_directory
 
-from app.config import configure_logging, BANDS_CONFIG, DEMO_MODE
+from app.config import configure_logging, BANDS_CONFIG, DB_PATH, DEMO_MODE
 from app.data.db import init_db, seed_bands_from_yaml, list_bands
 from app.cleanup import start_cleanup_scheduler
 
@@ -26,10 +26,13 @@ def _kill_stale_rtl_power() -> None:
 
 
 def create_app() -> Flask:
-    log.info("Starting RTL Power Dashboard")
+    log.info("Starting RTL Power Dashboard (demo_mode=%s)", DEMO_MODE)
     init_db()
-    log.info("Database initialised")
+    log.info("Database initialised at %s", DB_PATH)
     seed_bands_from_yaml(BANDS_CONFIG)
+    if DEMO_MODE:
+        from app.demo.player import seed_demo_bands
+        seed_demo_bands()
 
     # Only auto-start captures in the reloader child process (or when reloader
     # is disabled) — avoids double-start and dongle contention in debug mode.

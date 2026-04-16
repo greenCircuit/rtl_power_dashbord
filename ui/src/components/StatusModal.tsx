@@ -53,6 +53,9 @@ export default function StatusModal({ open, onClose }: Props) {
                 {status && (
                   <span className="ms-2 badge bg-success">● online</span>
                 )}
+                {status?.demo_mode && (
+                  <span className="ms-2 badge bg-warning text-dark">DEMO</span>
+                )}
                 {error && (
                   <span className="ms-2 badge bg-danger">● unreachable</span>
                 )}
@@ -68,6 +71,17 @@ export default function StatusModal({ open, onClose }: Props) {
               {error && (
                 <div className="alert alert-danger">
                   Could not reach the backend. Is the Flask server running?
+                </div>
+              )}
+
+              {status?.demo_mode && (
+                <div className="alert alert-warning d-flex align-items-start gap-2 py-2 mb-3">
+                  <span className="fw-bold">Demo mode</span>
+                  <span className="text-dark">
+                    Synthetic data is being generated from config bands and written to{' '}
+                    <code className="text-dark">demo.db</code>. Your live database is not affected.
+                    To disable, restart without the <code className="text-dark">DEMO_MODE=true</code> environment variable.
+                  </span>
                 </div>
               )}
 
@@ -163,7 +177,10 @@ export default function StatusModal({ open, onClose }: Props) {
 
             <div className="modal-footer border-secondary">
               <span className="text-muted small me-auto">
-                Backend configuration options coming soon
+                {status?.demo_mode
+                  ? <>Demo mode active — set <code>DEMO_MODE=false</code> to return to live capture</>
+                  : <>Set <code>DEMO_MODE=true</code> env variable to enable demo mode</>
+                }
               </span>
               <button className="btn btn-secondary btn-sm" onClick={onClose}>
                 Close

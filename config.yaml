@@ -22,7 +22,7 @@ charts:
   main_poll_interval_s: 30        # most used charts interval
   analytics_poll_interval_s: 60   # polling interval for more demanding charts, longer interval because they are more demanding to make
 
-DEMO_MODE: false
+DEMO_MODE: true  # will start creating mock data and add it to db
 bands:
   - id: gmrs
     name: GMRS
