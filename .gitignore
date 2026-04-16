@@ -1,6 +1,7 @@
 venv/
 vevn/
 rtl_power.db*
+demo.db*
 __pycache__/
 *.pyc
 *.pyo
