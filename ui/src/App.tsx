@@ -93,54 +93,54 @@ export default function App() {
       {/* Filters */}
       <FilterPanel />
 
-      {/* Analysis charts row 1: ToD occupancy + Signal duration */}
-      <div className="row mb-3">
-        <div className="col-md-6 mb-2">
-          <ChartFullscreen><TodHeatmap /></ChartFullscreen>
-        </div>
-        <div className="col-md-6 mb-2">
-          <ChartFullscreen><DurationChart /></ChartFullscreen>
-        </div>
-      </div>
-
-      {/* Analysis charts row 2: Activity trend + Noise floor envelope */}
-      <div className="row mb-3">
-        <div className="col-md-6 mb-2">
-          <ChartFullscreen><ActivityTrendChart /></ChartFullscreen>
-        </div>
-        <div className="col-md-6 mb-2">
-          <ChartFullscreen><NoiseFloorChart /></ChartFullscreen>
-        </div>
-      </div>
-
-      {/* Top active channels + Power distribution */}
-      <div className="row mb-3">
-        <div className="col-md-6 mb-2">
-          <ChartFullscreen><TopChannelsChart /></ChartFullscreen>
-        </div>
-        <div className="col-md-6 mb-2">
-          <ChartFullscreen><PowerHistogramChart /></ChartFullscreen>
-        </div>
-      </div>
-
-      {/* Heatmap (includes colorbar) */}
+      {/* 1. Spectrum heatmap — primary overview */}
       <ChartFullscreen><Heatmap /></ChartFullscreen>
 
       {/* Timeseries (appears after clicking heatmap) */}
       <ChartFullscreen><TimeseriesChart /></ChartFullscreen>
 
-      {/* Spectrum + Activity */}
+      {/* 2. Frequency-domain context */}
       <div className="row mb-1">
         <div className="col-12">
           <h6 className="mb-2 text-muted">Frequency Usage</h6>
         </div>
       </div>
-      <div className="row">
-        <div className="col-md-6 mb-3">
+      <div className="row mb-3">
+        <div className="col-md-6 mb-2">
           <ChartFullscreen><SpectrumChart /></ChartFullscreen>
         </div>
-        <div className="col-md-6 mb-3">
+        <div className="col-md-6 mb-2">
           <ChartFullscreen><ActivityChart /></ChartFullscreen>
+        </div>
+      </div>
+
+      {/* 3. Ranked summary */}
+      <div className="row mb-3">
+        <div className="col-md-6 mb-2">
+          <ChartFullscreen><TopChannelsChart /></ChartFullscreen>
+        </div>
+        <div className="col-md-6 mb-2">
+          <ChartFullscreen><ActivityTrendChart /></ChartFullscreen>
+        </div>
+      </div>
+
+      {/* 4. Temporal trends */}
+      <div className="row mb-3">
+        <div className="col-md-6 mb-2">
+          <ChartFullscreen><NoiseFloorChart /></ChartFullscreen>
+        </div>
+        <div className="col-md-6 mb-2">
+          <ChartFullscreen><TodHeatmap /></ChartFullscreen>
+        </div>
+      </div>
+
+      {/* 5. Signal characterisation */}
+      <div className="row mb-3">
+        <div className="col-md-6 mb-2">
+          <ChartFullscreen><DurationChart /></ChartFullscreen>
+        </div>
+        <div className="col-md-6 mb-2">
+          <ChartFullscreen><PowerHistogramChart /></ChartFullscreen>
         </div>
       </div>
     </div>

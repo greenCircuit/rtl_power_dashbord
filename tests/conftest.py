@@ -34,6 +34,7 @@ def flask_client(tmp_path, monkeypatch):
 
     import app as app_module
     monkeypatch.setattr(app_module, "seed_bands_from_yaml", lambda *a, **kw: None)
+    monkeypatch.setattr(app_module, "DEMO_MODE", False)
 
     from app import create_app
     flask_app = create_app()
