@@ -20,16 +20,16 @@ variables:
   BUILD_VERSION: 0.0.0  # semantic release job will overwrite it, so jobs that want to have it dynamically need to add needs for
                         # semantic release dry-run
 
+# releases jobs
+release-dry-run:
+  extends: .semantic-release-dry-run
+
 lint:
   stage: test
   image: pipelinecomponents/flake8:latest 
   script:
     - flake8 .
   allow_failure: true 
-
-# releases jobs
-release-dry-run:
-  extends: .semantic-release-dry-run
 
 unit-test:
   stage: test
@@ -63,7 +63,7 @@ dead-code:
   allow_failure: true
 
 img-base:
-  needs: []
+  needs: ["release-dry-run"]
   extends: .create_image
 
 # Security scans
@@ -89,7 +89,7 @@ pip-audit:
   image: python:3.13-slim
   script:
     - pip install pip-audit --quiet
-    - python -m pip_audit -r requirements.txt --severity high
+    - python -m pip_audit -r requirements.txt
 
 dockerfile-check:
   stage: security
