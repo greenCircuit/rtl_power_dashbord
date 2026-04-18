@@ -58,7 +58,7 @@ dead-code:
   image: python:3.13-slim
   script:
     - pip install vulture --quiet
-    - vulture app/ --min-confidence 80
+    - python -m vulture app/ --min-confidence 80
   allow_failure: true
 
 img-base:
@@ -88,7 +88,7 @@ pip-audit:
   image: python:3.13-slim
   script:
     - pip install pip-audit --quiet
-    - pip-audit -r requirements.txt --severity high
+    - python -m pip_audit -r requirements.txt --severity high
 
 dockerfile-check:
   stage: security
