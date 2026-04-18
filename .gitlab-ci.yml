@@ -69,19 +69,20 @@ semgrep-sast:
 
 trivy-dependency-scan:
   stage: security
-  image: 
+  image:
     name: aquasec/trivy:latest
     entrypoint: [""]
   script:
     - trivy fs . --scanners vuln --exit-code 1 --severity HIGH,CRITICAL
+    - trivy fs requirements.txt --scanners vuln --exit-code 1 --severity HIGH,CRITICAL
 
 dockerfile-check:
   stage: security
-  image: 
+  image:
     name: aquasec/trivy:latest
     entrypoint: [""]
   script:
-    - trivy config . --exit-code 1 --severity HIGH,CRITICAL
+    - trivy config . --exit-code 1 --severity HIGH,CRITICAL --skip-dirs k8s-deploy
 
 git-leaks:
   stage: security

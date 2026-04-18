@@ -28,12 +28,12 @@ COPY config.yaml .
 # Copy built frontend from stage 1
 COPY --from=ui-builder /ui/dist ./ui/dist
 
-# Runtime defaults — override in docker-compose or with -e flags
-ENV DATA_DIR=/app/data \
-    BANDS_CONFIG=/app/config.yaml \
-    LOG_PATH=/app/data/app.log \
-    PORT=8050 \
-    FLASK_DEBUG=false
+
+RUN useradd --system --no-create-home --shell /sbin/nologin flask \
+    && mkdir -p /app/data \
+    && chown flask:flask /app/data
+
+USER flask
 
 EXPOSE 8050
 
