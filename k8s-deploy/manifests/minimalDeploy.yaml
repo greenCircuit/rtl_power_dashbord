@@ -1,0 +1,125 @@
+# siple deployments that will deploy things for you
+# caveat is that need to run priveleded and mount usb using volume
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rtl-power 
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rtl-power
+  template:
+    metadata:
+      labels:
+        app: rtl-power 
+    spec:
+      containers:
+        - name: rtl-power
+          securityContext:
+            privileged: true
+          image: registry.dev.local/home-lab/rtl_power_dashbord:latest 
+          ports:
+            - containerPort: 8050
+          env:
+          - name: BANDS_CONFIG
+            value: /app/config/config.yaml
+          resources: {}
+          volumeMounts:
+            - name: usb-devices
+              mountPath: /dev/bus/usb
+              readOnly: true
+            - name: data
+              mountPath: /app/data 
+              readOnly: false 
+            - name: config 
+              mountPath: /app/config
+              readOnly: true 
+      volumes:
+        - name: usb-devices
+          hostPath:
+            path: /dev/bus/usb
+            type: Directory
+        - name: data
+          persistentVolumeClaim:
+            claimName: rtl-power-pvc
+        - name: config
+          configMap:
+            name: rtl-power-cm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rtl-power-svc
+spec:
+  type: NodePort 
+  ports:
+    - port: 8050
+      protocol: TCP
+  selector:
+    app: rtl-power 
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rtl-power-pvc
+spec:
+  storageClassName: local-path
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+# adding initial db data
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rtl-power-cm
+data: 
+  config.yaml: |
+    retention:
+      raw_hours: 2                  # keep full-resolution raw data for this window
+      rollup_interval_mins: 15      # how often the rollup scheduler runs
+      rollups:
+        - interval_minutes: 15
+          retention_days: 7
+        - interval_minutes: 60
+          retention_days: 90
+
+    clean_up:
+      enabled: true
+      # rules for cleaning data, they are or statement
+      interval_mins: 30     # how often to try to clean up data
+      db_max_size_mb: 1024  # maximum size of database allowed
+      max_time_hrs: 72      # how long to keep data
+
+
+    logs:
+      enabled: false  # write logs to a file + std out,
+
+    charts:
+      main_poll_interval_s: 30        # most used charts interval
+      analytics_poll_interval_s: 60   # polling interval for more demanding charts, longer interval because they are more demanding to make
+
+    DEMO_MODE: false  # will start creating mock data and add it to db
+    bands:
+      - id: gmrs
+        name: GMRS
+        freq_start: "462.5M"
+        freq_end:   "462.8M"
+        freq_step:  "25k"   
+        interval_s: 5
+        min_power: -2         
+        device_index: 0
+        is_active: true
+
+      - id: vhf-144-165
+        name: VHF 144-165
+        freq_start: "144M"
+        freq_end:   "165M"
+        freq_step:  "25k"
+        interval_s: 5
+        min_power: -2
+        device_index: 0
+        is_active: true
