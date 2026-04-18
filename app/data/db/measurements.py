@@ -3,7 +3,7 @@
 import logging
 import math
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import case, func
@@ -241,7 +241,7 @@ def fetch_band_timeseries(band_id: str, freq_mhz: float,
         return fetch_rollup_timeseries(band_id, bucket_minutes, freq_mhz, filters)
 
     with _session() as sess:
-        freq_filters = {**( filters or {}), "freq_min": freq_mhz, "freq_max": freq_mhz}
+        freq_filters = {**(filters or {}), "freq_min": freq_mhz, "freq_max": freq_mhz}
         n_sweeps, ts_min, ts_max = _scan_meta(sess, band_id, freq_filters)
 
         if n_sweeps <= _MAX_TIME_BUCKETS:

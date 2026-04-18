@@ -108,7 +108,8 @@ def load_retention_config() -> dict:
         rollups.sort(key=lambda t: t["interval_minutes"])
         return {
             "raw_hours":            int(section.get("raw_hours",            defaults["raw_hours"])),
-            "rollup_interval_mins": int(section.get("rollup_interval_mins", defaults["rollup_interval_mins"])),
+            "rollup_interval_mins": int(
+                section.get("rollup_interval_mins", defaults["rollup_interval_mins"])),
             "rollups":              rollups,
         }
     except Exception as exc:

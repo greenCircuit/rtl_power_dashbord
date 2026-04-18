@@ -31,7 +31,6 @@ _SIGNAL_DB       = -2    # base signal power: 3 dB above threshold
 _JITTER_DB       = 1.5   # random noise added per sample
 
 
-
 # ── Demo band definitions ─────────────────────────────────────────────────────
 
 DEMO_BANDS: list[dict] = [

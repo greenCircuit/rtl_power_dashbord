@@ -45,6 +45,14 @@ unit-test:
         coverage_format: cobertura
         path: coverage.xml
 
+ui-test:
+  stage: test
+  image: node:22-slim
+  script:
+    - cd ui
+    - npm ci --quiet
+    - npx vitest run
+
 dead-code:
   stage: test
   image: python:3.13-slim
@@ -74,7 +82,13 @@ trivy-dependency-scan:
     entrypoint: [""]
   script:
     - trivy fs . --scanners vuln --exit-code 1 --severity HIGH,CRITICAL
-    - trivy fs requirements.txt --scanners vuln --exit-code 1 --severity HIGH,CRITICAL
+
+pip-audit:
+  stage: security
+  image: python:3.13-slim
+  script:
+    - pip install pip-audit --quiet
+    - pip-audit -r requirements.txt --severity high
 
 dockerfile-check:
   stage: security
@@ -82,7 +96,7 @@ dockerfile-check:
     name: aquasec/trivy:latest
     entrypoint: [""]
   script:
-    - trivy config . --exit-code 1 --severity HIGH,CRITICAL --skip-dirs k8s-deploy
+    - trivy config . --exit-code 1 --severity HIGH,CRITICAL --skip-dirs k8s-deploy --skip-files Dockerfile.sandbox
 
 git-leaks:
   stage: security

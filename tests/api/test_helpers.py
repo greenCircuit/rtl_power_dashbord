@@ -6,7 +6,6 @@ mode the probe must be skipped entirely.
 """
 
 from unittest.mock import patch, MagicMock
-import subprocess
 
 
 def _reset_device_cache(monkeypatch):
@@ -25,15 +24,11 @@ def test_get_devices_skips_subprocess_in_demo_mode(monkeypatch):
          patch("app.config.DEMO_MODE", True), \
          patch("subprocess.run") as mock_run:
 
-        # Re-import to pick up the patched DEMO_MODE inside the function
-        import importlib
         import app.api.routes._helpers as h
         monkeypatch.setattr(h, "_device_cache", None)
 
         # Patch DEMO_MODE at the point where _get_devices reads it
         with patch.object(h, "_device_cache", None):
-            original_get_devices = h._get_devices
-
             def patched_get_devices():
                 # Inline the logic with DEMO_MODE forced True
                 if h._device_cache is None:

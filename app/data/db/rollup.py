@@ -111,7 +111,7 @@ def cleanup_rollup_tier(bucket_minutes: int, retention_days: int) -> int:
         cutoff = func.datetime("now", f"-{retention_days} days")
         n = sess.query(BandMeasurementRollup).filter(
             BandMeasurementRollup.bucket_minutes == bucket_minutes,
-            BandMeasurementRollup.bucket_ts      <  cutoff,
+            BandMeasurementRollup.bucket_ts < cutoff,
         ).delete(synchronize_session=False)
         sess.commit()
         return n
@@ -169,7 +169,7 @@ def _compress_bucket(meta, bucket_minutes: int):
 # ── query functions ───────────────────────────────────────────────────────────
 
 def fetch_rollup_measurements(band_id: str, bucket_minutes: int,
-                               filters: dict | None, agg: str = "avg") -> list[tuple]:
+                              filters: dict | None, agg: str = "avg") -> list[tuple]:
     """Return [(timestamp, frequency_mhz, power_db)] from rollup."""
     with _session() as sess:
         meta        = _meta(sess, band_id, bucket_minutes, filters)
@@ -203,7 +203,7 @@ def fetch_rollup_measurements(band_id: str, bucket_minutes: int,
 
 
 def fetch_rollup_timeseries(band_id: str, bucket_minutes: int,
-                             freq_mhz: float, filters: dict | None) -> list[dict]:
+                            freq_mhz: float, filters: dict | None) -> list[dict]:
     """Return [{timestamp, power_db}] from rollup for one frequency."""
     with _session() as sess:
         q = sess.query(
@@ -220,7 +220,7 @@ def fetch_rollup_timeseries(band_id: str, bucket_minutes: int,
 
 
 def fetch_rollup_stats(band_id: str, bucket_minutes: int,
-                        filters: dict | None) -> list[dict]:
+                       filters: dict | None) -> list[dict]:
     """Return [{frequency_mhz, mean_db, peak_db}] from rollup."""
     with _session() as sess:
         q = sess.query(
@@ -240,7 +240,7 @@ def fetch_rollup_stats(band_id: str, bucket_minutes: int,
 
 
 def fetch_rollup_activity(band_id: str, bucket_minutes: int,
-                           threshold_db: float, filters: dict | None) -> list[dict]:
+                          threshold_db: float, filters: dict | None) -> list[dict]:
     """Return [{frequency_mhz, active, total}] from rollup.
 
     A bucket is counted active if max_db >= threshold_db.
@@ -266,7 +266,7 @@ def fetch_rollup_activity(band_id: str, bucket_minutes: int,
 
 
 def fetch_rollup_histogram(band_id: str, bucket_minutes: int,
-                            filters: dict | None) -> list[float]:
+                           filters: dict | None) -> list[float]:
     """Return avg_db values from rollup for histogram building."""
     with _session() as sess:
         q = sess.query(BandMeasurementRollup.avg_db).filter(
@@ -278,7 +278,7 @@ def fetch_rollup_histogram(band_id: str, bucket_minutes: int,
 
 
 def fetch_rollup_signal_raw(band_id: str, bucket_minutes: int,
-                             threshold_db: float, filters: dict | None) -> list[dict]:
+                            threshold_db: float, filters: dict | None) -> list[dict]:
     """Return [{timestamp, frequency_mhz, power_db}] from rollup where max_db >= threshold."""
     with _session() as sess:
         q = sess.query(
