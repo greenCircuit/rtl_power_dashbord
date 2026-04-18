@@ -17,10 +17,11 @@ _device_cache: list[dict] | None = None
 
 
 def _get_devices() -> list[dict]:
-    """Return cached device list, probing rtl_test on first call."""
+    """Return cached device list, probing rtl_test on first call (skipped in demo mode)."""
     global _device_cache
     if _device_cache is None:
-        _device_cache = _list_rtl_devices()
+        from app.config import DEMO_MODE
+        _device_cache = [] if DEMO_MODE else _list_rtl_devices()
         if not _device_cache:
             _device_cache = [{"index": 0, "name": "Device 0"}]
     return _device_cache
@@ -40,7 +41,8 @@ def _list_rtl_devices() -> list[dict]:
             ["rtl_test"], capture_output=True, text=True, timeout=3
         )
         output = result.stderr + result.stdout
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except Exception as exc:
+        log.warning("rtl_test probe failed — no device info available: %s", exc)
         return []
 
     devices: dict[int, str] = {}

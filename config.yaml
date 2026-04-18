@@ -6,6 +6,15 @@
 #   k = kHz   M = MHz   G = GHz
 # Examples: "462.5M", "25k", "1.2G"
 
+retention:
+  raw_hours: 2                  # keep full-resolution raw data for this window
+  rollup_interval_mins: 15      # how often the rollup scheduler runs
+  rollups:
+    - interval_minutes: 15
+      retention_days: 7
+    - interval_minutes: 60
+      retention_days: 90
+
 # remove older data automatically because can gather too much data if left running
 clean_up:
   enabled: true
@@ -16,11 +25,8 @@ clean_up:
 
 
 logs:
-  enabled: false  # write logs to a life + std out,
+  enabled: false  # write logs to a file + std out,
 
-charts:
-  main_poll_interval_s: 30        # most used charts interval
-  analytics_poll_interval_s: 60   # polling interval for more demanding charts, longer interval because they are more demanding to make
 
 DEMO_MODE: true  # will start creating mock data and add it to db
 bands:

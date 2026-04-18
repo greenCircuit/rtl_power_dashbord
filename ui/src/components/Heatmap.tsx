@@ -6,6 +6,13 @@ import { plasmaColor } from '../colors'
 
 const MARGIN = { top: 30, right: 10, bottom: 50, left: 65 }
 
+function pad2(n: number) { return String(n).padStart(2, '0') }
+
+// Parse a UTC timestamp string ("YYYY-MM-DD HH:MM:SS") to Unix epoch seconds.
+function epochOf(ts: string): number {
+  return new Date(ts.replace(' ', 'T') + 'Z').getTime() / 1000
+}
+
 // ── Pure drawing functions ────────────────────────────────────────────────────
 
 function buildLayout(canvas: HTMLCanvasElement, data: HeatmapData): HeatmapLayout {
@@ -30,12 +37,26 @@ function buildLayout(canvas: HTMLCanvasElement, data: HeatmapData): HeatmapLayou
   }
 }
 
-function drawHeatmap(canvas: HTMLCanvasElement, data: HeatmapData): HeatmapLayout {
+function drawHeatmap(
+  canvas: HTMLCanvasElement,
+  data: HeatmapData,
+  rangeStart?: number,   // requested window start (epoch s); undefined = use data range
+  rangeEnd?: number,     // requested window end   (epoch s); undefined = use data range
+): HeatmapLayout {
   const layout = buildLayout(canvas, data)
   const { left, top, plotW, plotH, nTime, nFreq, W0, H0 } = layout
   const dpr = window.devicePixelRatio || 1
   const ctx = canvas.getContext('2d')!
   ctx.scale(dpr, dpr)
+
+  // Build per-column epoch array for timestamp-based pixel mapping.
+  const dataEpochs = data.x.map(ts => epochOf(String(ts)))
+  const dataBucketS = nTime > 1
+    ? (dataEpochs[nTime - 1] - dataEpochs[0]) / (nTime - 1)
+    : 60
+  const tMin  = rangeStart ?? dataEpochs[0]          ?? 0
+  const tMax  = rangeEnd   ?? dataEpochs[nTime - 1]  ?? tMin + 60
+  const tSpan = Math.max(tMax - tMin, 1)
 
   // z range
   let zMin = Infinity, zMax = -Infinity
@@ -59,12 +80,28 @@ function drawHeatmap(canvas: HTMLCanvasElement, data: HeatmapData): HeatmapLayou
   const octx = offscreen.getContext('2d')!
   const img  = octx.createImageData(ow, oh)
 
+  // Pre-compute: for each output pixel column, which data column index to use
+  // (or -1 if this pixel falls in a time gap with no nearby data).
+  const colMap = new Int32Array(ow)
+  for (let px = 0; px < ow; px++) {
+    const targetEpoch = tMin + (px / ow) * tSpan
+    if (nTime === 0) { colMap[px] = -1; continue }
+    // Binary search for the nearest data column.
+    let lo = 0, hi = nTime - 1
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (dataEpochs[mid] < targetEpoch) lo = mid + 1; else hi = mid
+    }
+    if (lo > 0 && Math.abs(dataEpochs[lo - 1] - targetEpoch) < Math.abs(dataEpochs[lo] - targetEpoch)) lo--
+    colMap[px] = Math.abs(dataEpochs[lo] - targetEpoch) <= dataBucketS * 0.6 ? lo : -1
+  }
+
   for (let py = 0; py < oh; py++) {
     const fi  = Math.max(0, Math.min(Math.floor((1 - py / oh) * nFreq), nFreq - 1))
     const row = data.z[fi]
     for (let px = 0; px < ow; px++) {
-      const ti = Math.max(0, Math.min(Math.floor(px / ow * nTime), nTime - 1))
-      const v  = row[ti]
+      const ti = colMap[px]
+      const v  = ti < 0 ? null : row[ti]
       const i  = (py * ow + px) * 4
       if (v === null || v === undefined) {
         img.data[i] = img.data[i + 1] = img.data[i + 2] = 20
@@ -100,13 +137,19 @@ function drawHeatmap(canvas: HTMLCanvasElement, data: HeatmapData): HeatmapLayou
     ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + plotW, y); ctx.stroke()
   }
 
-  // X axis (time)
-  ctx.textAlign = 'center'
+  // X axis (time) — labels span the requested range, not just the data range.
+  // Use dates for spans >= 2 days, times for shorter spans.
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const useDate = tSpan >= 2 * 86400
   for (let i = 0; i <= 5; i++) {
-    const t   = i / 5
-    const ti  = Math.max(0, Math.min(Math.floor(t * (nTime - 1)), nTime - 1))
-    const lbl = data.x[ti] ? String(data.x[ti]).substring(11, 16) : ''
-    const x   = left + plotW * t
+    const t     = i / 5
+    const epoch = tMin + t * tSpan
+    const d     = new Date(epoch * 1000)
+    const lbl   = useDate
+      ? `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`
+      : `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`
+    const x     = left + plotW * t
+    ctx.textAlign = i === 0 ? 'left' : i === 5 ? 'right' : 'center'
     ctx.fillText(lbl, x, top + plotH + 16)
     ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + plotH); ctx.stroke()
   }
@@ -158,10 +201,15 @@ function drawColorbar(
 
 export default function Heatmap() {
   const bandId    = useStore(s => s.bandId)
+  const filters   = useStore(s => s.filters)
   const setLayout = useStore(s => s.setHeatmapLayout)
   const setFreq   = useStore(s => s.setSelectedFreq)
 
   const { data, error } = useHeatmap()
+
+  // Epoch bounds derived from the active time filter (UTC strings from backend).
+  const rangeStart = filters.time_min ? epochOf(filters.time_min) : undefined
+  const rangeEnd   = filters.time_max ? epochOf(filters.time_max) : undefined
 
   const canvasRef    = useRef<HTMLCanvasElement>(null)
   const crossRef     = useRef<HTMLCanvasElement>(null)
@@ -171,20 +219,29 @@ export default function Heatmap() {
   const cbMinRef     = useRef<HTMLSpanElement>(null)
   const layoutRef    = useRef<HeatmapLayout | null>(null)
   const lastDataRef  = useRef<HeatmapData | null>(null)
-  const [showCB, setShowCB] = useState(false)
+  const rangeRef     = useRef<{ start?: number; end?: number }>({})
+  const [showCB,   setShowCB]   = useState(false)
+  const [hasDrawn, setHasDrawn] = useState(false)
 
-  // Draw when data arrives
+  // Keep rangeRef in sync so the resize observer can always use the latest range.
+  rangeRef.current = { start: rangeStart, end: rangeEnd }
+
+  // Reset "has drawn" state when the band changes so a blank band starts fresh.
+  useEffect(() => { setHasDrawn(false); lastDataRef.current = null }, [bandId])
+
+  // Draw when data or range changes.
   useEffect(() => {
-    if (!data || !canvasRef.current) { setShowCB(false); return }
+    if (!data || !canvasRef.current) { return }
     lastDataRef.current = data
-    const layout = drawHeatmap(canvasRef.current, data)
+    const layout = drawHeatmap(canvasRef.current, data, rangeStart, rangeEnd)
     layoutRef.current = layout
     setLayout(layout)
     setShowCB(true)
+    setHasDrawn(true)
     if (cbCanvasRef.current && cbMaxRef.current && cbMinRef.current) {
       drawColorbar(cbCanvasRef.current, layout.zMin, layout.zMax, cbMaxRef.current, cbMinRef.current)
     }
-  }, [data])
+  }, [data, rangeStart, rangeEnd])
 
   // Resize observer — redraw on container size change
   useEffect(() => {
@@ -195,7 +252,8 @@ export default function Heatmap() {
       clearTimeout(tid)
       tid = setTimeout(() => {
         if (lastDataRef.current && canvasRef.current) {
-          const layout = drawHeatmap(canvasRef.current, lastDataRef.current)
+          const { start, end } = rangeRef.current
+          const layout = drawHeatmap(canvasRef.current, lastDataRef.current, start, end)
           layoutRef.current = layout
           setLayout(layout)
           if (cbCanvasRef.current && cbMaxRef.current && cbMinRef.current) {
@@ -304,7 +362,7 @@ export default function Heatmap() {
           <canvas ref={crossRef}
             style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }} />
           <div className="heatmap-tooltip" ref={tooltipRef} style={{ display: 'none' }} />
-          {!data && (
+          {!hasDrawn && (
             <div className="heatmap-empty">
               {!bandId ? 'No band selected' : error ? 'No data yet' : 'Loading…'}
             </div>

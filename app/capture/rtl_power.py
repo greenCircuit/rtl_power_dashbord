@@ -191,6 +191,11 @@ class RTLPowerCapture:
                 # within an active sweep still get stored with negative values.
                 rows = [(ts, freq, pwr) for ts, freq, pwr in rows if pwr >= min_power]
                 pending.setdefault(band_id, []).extend(rows)
+        except Exception as exc:
+            self._status = "error"
+            self._error  = str(exc)
+            log.error("Monitor thread crashed after %d lines parsed: %s",
+                      lines_parsed, exc, exc_info=True)
         finally:
             if pending:
                 try:

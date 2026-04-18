@@ -14,7 +14,7 @@ import random
 import sqlite3
 import threading
 import time as _time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.config import DB_PATH
 
@@ -25,8 +25,11 @@ _INSERT = """
     VALUES (?, ?, ?, ?)
 """
 
-_NOISE_FLOOR_DB = -90.0   # baseline noise across all bands
-_JITTER_DB      = 1.5     # random noise added per sample
+_NOISE_FLOOR_DB  = -15   # baseline noise across all bands
+_MIN_POWER_DB    = -2    # discard threshold: 10 dB above noise floor (noise reliably filtered)
+_SIGNAL_DB       = -2    # base signal power: 3 dB above threshold
+_JITTER_DB       = 1.5   # random noise added per sample
+
 
 
 # ── Demo band definitions ─────────────────────────────────────────────────────
@@ -37,26 +40,25 @@ DEMO_BANDS: list[dict] = [
         "name":         "Demo: Noise Floor",
         "freq_start":   "144M",
         "freq_end":     "146M",
-        "freq_step":    "25k",
+        "freq_step":    "50k",
         "interval_s":   5,
-        "min_power":    -100.0,
+        "min_power":    _MIN_POWER_DB,
         "device_index": 0,
         "is_active":    True,
-        # No _signals → flat noise only; good for testing baseline rendering
     },
     {
         "id":           "demo-active",
         "name":         "Demo: Active Channels",
         "freq_start":   "462.5M",
         "freq_end":     "462.8M",
-        "freq_step":    "25k",
+        "freq_step":    "50k",
         "interval_s":   5,
-        "min_power":    -100.0,
+        "min_power":    _MIN_POWER_DB,
         "device_index": 0,
         "is_active":    True,
         "_signals": [
-            {"freq_mhz": 462.625, "power_db": -55.0, "period_s": 1, "duty": 1.0},
-            {"freq_mhz": 462.750, "power_db": -63.0, "period_s": 1, "duty": 1.0},
+            {"freq_mhz": 462.625, "power_db": _SIGNAL_DB + 3, "period_s": 1, "duty": 1.0},
+            {"freq_mhz": 462.750, "power_db": _SIGNAL_DB,     "period_s": 1, "duty": 1.0},
         ],
     },
     {
@@ -64,15 +66,15 @@ DEMO_BANDS: list[dict] = [
         "name":         "Demo: Periodic Signals",
         "freq_start":   "156M",
         "freq_end":     "158M",
-        "freq_step":    "25k",
+        "freq_step":    "50k",
         "interval_s":   5,
-        "min_power":    -100.0,
+        "min_power":    _MIN_POWER_DB,
         "device_index": 0,
         "is_active":    True,
         "_signals": [
-            {"freq_mhz": 156.300, "power_db": -58.0, "period_s": 60,  "duty": 0.50},
-            {"freq_mhz": 156.800, "power_db": -65.0, "period_s": 30,  "duty": 0.40},
-            {"freq_mhz": 157.100, "power_db": -52.0, "period_s": 120, "duty": 0.25},
+            {"freq_mhz": 156.300, "power_db": _SIGNAL_DB + 3, "period_s": 60,  "duty": 0.50},
+            {"freq_mhz": 156.800, "power_db": _SIGNAL_DB,     "period_s": 30,  "duty": 0.40},
+            {"freq_mhz": 157.100, "power_db": _SIGNAL_DB + 5, "period_s": 120, "duty": 0.25},
         ],
     },
 ]
@@ -110,9 +112,9 @@ def _freq_list(band: dict) -> list[float]:
 # Signals placed at these fractional positions within the frequency list.
 # Each entry: (position fraction, power dBm, period seconds, duty cycle)
 _SIGNAL_TEMPLATES = [
-    (0.25, -55.0,  60, 0.50),   # 25 % into the band, on 50 % of the time
-    (0.50, -62.0,  30, 0.40),   # centre, faster cycle
-    (0.75, -58.0, 120, 0.30),   # 75 % into the band, slow cycle
+    (0.25, _SIGNAL_DB + 3,  60, 0.50),
+    (0.50, _SIGNAL_DB,      30, 0.40),
+    (0.75, _SIGNAL_DB + 5, 120, 0.30),
 ]
 
 
@@ -167,10 +169,10 @@ def _replay(band: dict, interval_s: float, stop_event: threading.Event) -> None:
         epoch = _time.time()
         sweep = _generate_sweep(band, epoch)
         ts    = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        rows  = [(band["id"], ts, freq, pwr) for freq, pwr in sweep]
+        rows  = [(band["id"], ts, freq, pwr) for freq, pwr in sweep
+                 if pwr >= band.get("min_power", _MIN_POWER_DB)]
         try:
             with sqlite3.connect(str(DB_PATH), check_same_thread=False) as conn:
-                conn.execute("PRAGMA journal_mode=WAL")
                 conn.executemany(_INSERT, rows)
             log.debug(
                 "Demo: wrote %d rows for band %r at %s",
@@ -180,6 +182,77 @@ def _replay(band: dict, interval_s: float, stop_event: threading.Event) -> None:
             log.warning("Demo write error for band %r: %s", band["id"], exc)
 
         stop_event.wait(interval_s)
+
+
+_HISTORY_DAYS     = 5
+_HISTORY_INTERVAL = 60   # seconds between historical sweep points
+_INSERT_BATCH     = 5_000
+
+
+def seed_historical_data(bands: list[dict]) -> None:
+    """Back-fill 7 days of synthetic sweep data for all demo bands.
+
+    Skips seeding if data older than 1 day already exists for any demo band,
+    so restarts don't duplicate rows.
+    """
+    now       = datetime.now(timezone.utc)
+    cutoff_ts = (now - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        with sqlite3.connect(str(DB_PATH), check_same_thread=False) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM band_measurements WHERE timestamp < ? LIMIT 1",
+                (cutoff_ts,),
+            ).fetchone()
+    except Exception as exc:
+        log.warning("Demo: could not check for existing history: %s", exc)
+        return
+
+    if row:
+        log.info("Demo: historical data already present — skipping seed")
+        return
+
+    start_epoch = (now - timedelta(days=_HISTORY_DAYS)).timestamp()
+    end_epoch   = now.timestamp()
+    total_steps = int((end_epoch - start_epoch) / _HISTORY_INTERVAL)
+
+    log.info(
+        "Demo: seeding %d days of history (%d sweeps per band) …",
+        _HISTORY_DAYS, total_steps,
+    )
+
+    for band in bands:
+        bid      = band["id"]
+        min_pwr  = band.get("min_power", _MIN_POWER_DB)
+        rows: list[tuple] = []
+
+        for i in range(total_steps):
+            epoch = start_epoch + i * _HISTORY_INTERVAL
+            ts    = datetime.fromtimestamp(epoch, tz=timezone.utc).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+            for freq, pwr in _generate_sweep(band, epoch):
+                if pwr >= min_pwr:
+                    rows.append((bid, ts, freq, pwr))
+
+            if len(rows) >= _INSERT_BATCH:
+                try:
+                    with sqlite3.connect(str(DB_PATH), check_same_thread=False) as conn:
+                        conn.executemany(_INSERT, rows)
+                except Exception as exc:
+                    log.warning("Demo: history insert error for band %r: %s", bid, exc)
+                rows = []
+
+        if rows:
+            try:
+                with sqlite3.connect(str(DB_PATH), check_same_thread=False) as conn:
+                    conn.executemany(_INSERT, rows)
+            except Exception as exc:
+                log.warning("Demo: history insert error for band %r: %s", bid, exc)
+
+        log.info("Demo: historical data seeded for band %r", bid)
+
+    log.info("Demo: history seed complete")
 
 
 # ── Demo band seeding (called explicitly from create_app) ────────────────────
@@ -208,9 +281,22 @@ def seed_demo_bands() -> None:
                 )
                 log.info("Demo: seeded band %r (%s)", bid, band["name"])
             else:
-                log.debug("Demo: band %r already exists, skipping seed", bid)
+                # If a config.yaml band has the same ID as a demo band, the config
+                # version is already in the DB. The demo's _signals definitions won't
+                # be used — synthetic data will fall back to _mock_signals() placement.
+                log.warning(
+                    "Demo: band %r already exists (seeded from config.yaml) — "
+                    "demo signal definitions will not be used; "
+                    "rename the config band to avoid this collision",
+                    bid,
+                )
         except Exception as exc:
             log.error("Demo: failed to seed band %r: %s", bid, exc)
+
+    # Build full band list (DEMO_BANDS have _signals; config bands fall back to _mock_signals)
+    config_bands = [b for b in live_db.list_bands() if b["id"] not in {d["id"] for d in DEMO_BANDS}]
+    all_bands = list(DEMO_BANDS) + config_bands
+    seed_historical_data(all_bands)
 
 
 # ── DemoBandPlayer ────────────────────────────────────────────────────────────
@@ -223,10 +309,11 @@ class DemoBandPlayer:
     """
 
     def __init__(self) -> None:
-        self._active:  dict[str, dict]             = {}
-        self._threads: dict[str, threading.Thread] = {}
-        self._stops:   dict[str, threading.Event]  = {}
-        self._lock     = threading.Lock()
+        self._active:   dict[str, dict]             = {}
+        self._threads:  dict[str, threading.Thread] = {}
+        self._stops:    dict[str, threading.Event]  = {}
+        self._statuses: dict[str, str]              = {}  # terminal status after thread exits
+        self._lock      = threading.Lock()
         log.info("Demo mode active — synthetic data for demo + config bands")
 
     # ── public API (mirrors BandCaptureManager) ───────────────────────────────
@@ -247,6 +334,7 @@ class DemoBandPlayer:
             if band_id not in self._active:
                 return
             del self._active[band_id]
+            self._statuses[band_id] = "stopped"
             self._stop_thread(band_id)
 
     def start_active_bands(self, bands: list[dict]) -> None:
@@ -267,7 +355,8 @@ class DemoBandPlayer:
     def get_status(self, band_id: str) -> str:
         with self._lock:
             if band_id not in self._active:
-                return "idle"
+                # Return a terminal status if we recorded one (e.g. "stopped")
+                return self._statuses.get(band_id, "idle")
             t = self._threads.get(band_id)
             return "running" if (t and t.is_alive()) else "idle"
 
@@ -276,7 +365,11 @@ class DemoBandPlayer:
 
     def all_statuses(self) -> dict[str, str]:
         with self._lock:
-            return {bid: self.get_status(bid) for bid in self._active}
+            result = {}
+            for bid in self._active:
+                t = self._threads.get(bid)
+                result[bid] = "running" if (t and t.is_alive()) else "idle"
+            return result
 
     # ── internal ──────────────────────────────────────────────────────────────
 

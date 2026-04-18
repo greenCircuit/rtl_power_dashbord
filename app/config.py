@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from pathlib import Path
@@ -24,6 +25,9 @@ def _read_demo_mode() -> bool:
             cfg = yaml.safe_load(fh) or {}
         return str(cfg.get("DEMO_MODE", "false")).lower() == "true"
     except Exception:
+        logging.getLogger(__name__).warning(
+            "Failed to read DEMO_MODE from %s — defaulting to False", BANDS_CONFIG
+        )
         return False
 
 
@@ -73,6 +77,47 @@ def load_cleanup_config() -> dict:
         return defaults
 
 
+def load_retention_config() -> dict:
+    """Read retention section from config.yaml.
+
+    Returns dict with keys: raw_hours, rollup_interval_mins, rollups.
+    rollups is a list of {interval_minutes, retention_days} sorted ascending by interval.
+    """
+    defaults: dict = {
+        "raw_hours":            2,
+        "rollup_interval_mins": 15,
+        "rollups":              [],
+    }
+    if not BANDS_CONFIG.exists():
+        return defaults
+    try:
+        with open(BANDS_CONFIG) as fh:
+            cfg = yaml.safe_load(fh) or {}
+        section = cfg.get("retention", {}) or {}
+        rollups = []
+        for tier in (section.get("rollups") or []):
+            try:
+                rollups.append({
+                    "interval_minutes": int(tier["interval_minutes"]),
+                    "retention_days":   int(tier["retention_days"]),
+                })
+            except (KeyError, TypeError, ValueError):
+                logging.getLogger(__name__).warning(
+                    "Skipping malformed rollup tier: %r", tier
+                )
+        rollups.sort(key=lambda t: t["interval_minutes"])
+        return {
+            "raw_hours":            int(section.get("raw_hours",            defaults["raw_hours"])),
+            "rollup_interval_mins": int(section.get("rollup_interval_mins", defaults["rollup_interval_mins"])),
+            "rollups":              rollups,
+        }
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Failed to load retention config from %s: %s — using defaults", BANDS_CONFIG, exc
+        )
+        return defaults
+
+
 def _log_file_enabled() -> bool:
     """Read logs.enabled from config.yaml. Defaults to False (stdout only)."""
     if not BANDS_CONFIG.exists():
@@ -82,17 +127,34 @@ def _log_file_enabled() -> bool:
             cfg = yaml.safe_load(fh) or {}
         return bool(cfg.get("logs", {}).get("enabled", False))
     except Exception:
+        logging.getLogger(__name__).warning(
+            "Failed to read logs.enabled from %s — file logging disabled", BANDS_CONFIG
+        )
         return False
 
 
+class _JsonFormatter(logging.Formatter):
+    """Emit one JSON object per log record, always on a single line."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict = {
+            "ts":    self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+            "level": record.levelname,
+            "msg":   record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exc"] = self.formatException(record.exc_info)
+        if record.stack_info:
+            payload["stack"] = self.formatStack(record.stack_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
 def configure_logging() -> None:
-    """Set up root logger. Always logs to stdout; adds file handler only when
-    logs.enabled = true in config.yaml."""
+    """Set up root logger. Always logs to stdout in JSON; adds file handler
+    only when logs.enabled = true in config.yaml."""
     level = getattr(logging, LOG_LEVEL, logging.INFO)
-    fmt = logging.Formatter(
-        "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    fmt = _JsonFormatter()
+
     root = logging.getLogger()
     if root.handlers:
         return  # already configured (e.g. reloader second pass)
@@ -107,7 +169,7 @@ def configure_logging() -> None:
         fh = logging.FileHandler(LOG_PATH)
         fh.setFormatter(fmt)
         root.addHandler(fh)
-        logging.getLogger(__name__).info("File logging enabled → %s", LOG_PATH)
+        logging.getLogger(__name__).info("File logging enabled — path=%s", LOG_PATH)
 
     # Silence noisy third-party loggers
     for noisy in ("werkzeug", "dash", "urllib3"):

@@ -19,6 +19,7 @@ interface AppState {
   // Polling ticks — incremented on interval; charts depend on these to refetch
   refreshTick: number
   analysisRefreshTick: number
+  pollInterval: number  // ms; 0 = paused
 
   // Band modal
   modalOpen: boolean
@@ -33,6 +34,7 @@ interface AppState {
   setFilters: (filters: Filters) => void
   setThreshold: (t: number) => void
   setTimeRange: (range: string) => void
+  setPollInterval: (ms: number) => void
   tick: () => void
   analysisTick: () => void
   openAddModal: () => void
@@ -51,6 +53,7 @@ export const useStore = create<AppState>((set) => ({
   timeRange: '12h',
   refreshTick: 0,
   analysisRefreshTick: 0,
+  pollInterval: 15_000,
   modalOpen: false,
   editingId: null,
 
@@ -62,6 +65,7 @@ export const useStore = create<AppState>((set) => ({
   setFilters:       (filters)       => set({ filters }),
   setThreshold:     (threshold)     => set({ threshold }),
   setTimeRange:     (timeRange)     => set({ timeRange }),
+  setPollInterval:  (pollInterval)  => set({ pollInterval }),
   tick:             ()              => set(s => ({ refreshTick: s.refreshTick + 1 })),
   analysisTick:     ()              => set(s => ({ analysisRefreshTick: s.analysisRefreshTick + 1 })),
   openAddModal:     ()              => set({ modalOpen: true,  editingId: null }),

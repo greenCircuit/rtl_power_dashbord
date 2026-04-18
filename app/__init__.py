@@ -3,11 +3,12 @@ import os
 import subprocess
 from pathlib import Path
 
-from flask import Flask, g, send_from_directory
+from flask import Flask, g, jsonify, send_from_directory
 
 from app.config import configure_logging, BANDS_CONFIG, DB_PATH, DEMO_MODE
 from app.data.db import init_db, seed_bands_from_yaml, list_bands
 from app.cleanup import start_cleanup_scheduler
+from app.rollup import run_rollup_once, start_rollup_scheduler
 
 UI_DIST = Path(__file__).parent.parent / 'ui' / 'dist'
 
@@ -54,11 +55,25 @@ def create_app() -> Flask:
                 log.warning("Failed to auto-start bands: %s", exc)
 
     if should_start:
+        run_rollup_once()   # seed rollup from any existing raw data before cleanup trims it
         start_cleanup_scheduler()
+        start_rollup_scheduler()
 
     log.info("Startup complete")
 
     server = Flask(__name__, static_folder=None)
+
+    @server.errorhandler(Exception)
+    def _handle_unhandled_exception(exc: Exception):
+        log.error("Unhandled exception in request %s %s",
+                  __import__("flask").request.method,
+                  __import__("flask").request.path,
+                  exc_info=exc)
+        return jsonify({"error": "internal server error"}), 500
+
+    @server.errorhandler(404)
+    def _handle_not_found(exc):
+        return jsonify({"error": "not found"}), 404
 
     @server.teardown_appcontext
     def _teardown_db_session(exc: BaseException | None) -> None:

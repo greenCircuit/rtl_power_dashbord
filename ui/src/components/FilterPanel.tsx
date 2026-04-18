@@ -1,27 +1,48 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useStore } from '../store'
 import type { Filters } from '../api'
 
 const RANGE_OFFSETS: Record<string, number> = {
+  '1m':  60,
   '15m': 15 * 60,
   '1h':  3600,
   '12h': 12 * 3600,
   '1d':  86400,
   '7d':  7 * 86400,
 }
-const RANGES = ['15m', '1h', '12h', '1d', '7d', 'all']
+const RANGES = ['1m', '15m', '1h', '12h', '1d', '7d', 'all']
+
+const POLL_OPTIONS = [
+  { label: 'Off', ms: 0       },
+  { label: '5s',  ms: 5_000   },
+  { label: '10s', ms: 10_000  },
+  { label: '15s', ms: 15_000  },
+  { label: '30s', ms: 30_000  },
+  { label: '1m',  ms: 60_000  },
+  { label: '5m',  ms: 300_000 },
+]
 
 function pad(n: number) { return String(n).padStart(2, '0') }
+
+// For the datetime-local input display (local time, minutes precision is fine for UI)
 function toLocalDT(d: Date) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+// DB stores UTC; convert any local datetime string to a UTC filter value.
+// Also adds seconds so time_max doesn't cut off data in the current minute.
+function toUtcFilter(d: Date): string {
+  return d.toISOString().replace('T', ' ').slice(0, 19)
+}
+
 export default function FilterPanel() {
-  const setFilters   = useStore(s => s.setFilters)
-  const setThreshold = useStore(s => s.setThreshold)
-  const threshold    = useStore(s => s.threshold)
-  const timeRange    = useStore(s => s.timeRange)
-  const setTimeRange = useStore(s => s.setTimeRange)
+  const setFilters      = useStore(s => s.setFilters)
+  const setThreshold    = useStore(s => s.setThreshold)
+  const threshold       = useStore(s => s.threshold)
+  const timeRange       = useStore(s => s.timeRange)
+  const setTimeRange    = useStore(s => s.setTimeRange)
+  const pollInterval    = useStore(s => s.pollInterval)
+  const setPollInterval = useStore(s => s.setPollInterval)
 
   const [freqMin,   setFreqMin]   = useState('')
   const [freqMax,   setFreqMax]   = useState('')
@@ -38,8 +59,8 @@ export default function FilterPanel() {
     const f: Filters = {}
     if (fMin !== '') f.freq_min = Number(fMin)
     if (fMax !== '') f.freq_max = Number(fMax)
-    if (tStart)      f.time_min = tStart.replace('T', ' ')
-    if (tEnd)        f.time_max = tEnd.replace('T', ' ')
+    if (tStart)      f.time_min = toUtcFilter(new Date(tStart))
+    if (tEnd)        f.time_max = toUtcFilter(new Date(tEnd))
     return f
   }, [freqMin, freqMax, timeStart, timeEnd])
 
@@ -52,12 +73,28 @@ export default function FilterPanel() {
       const secs  = RANGE_OFFSETS[range]
       const now   = new Date()
       const start = new Date(now.getTime() - secs * 1000)
-      const s = toLocalDT(start)
-      const e = toLocalDT(now)
-      setTimeStart(s); setTimeEnd(e)
-      setFilters(buildFilters({ timeStart: s, timeEnd: e }))
+      // Display inputs show local time; backend receives UTC with seconds precision.
+      setTimeStart(toLocalDT(start))
+      setTimeEnd(toLocalDT(now))
+      const f: Filters = { time_min: toUtcFilter(start), time_max: toUtcFilter(now) }
+      const cur = buildFilters({ timeStart: '', timeEnd: '' })
+      if (cur.freq_min != null) f.freq_min = cur.freq_min
+      if (cur.freq_max != null) f.freq_max = cur.freq_max
+      setFilters(f)
     }
   }
+
+  // Live mode: keep the 1-minute window rolling every 5 s.
+  // We use a ref so the interval callback always sees the latest applyRange
+  // without re-registering the interval on every render.
+  const applyRangeRef = useRef(applyRange)
+  useEffect(() => { applyRangeRef.current = applyRange })
+
+  useEffect(() => {
+    if (timeRange !== '1m') return
+    const id = setInterval(() => applyRangeRef.current('1m'), 5_000)
+    return () => clearInterval(id)
+  }, [timeRange])
 
   function clearFilters() {
     setFreqMin(''); setFreqMax('')
@@ -80,13 +117,36 @@ export default function FilterPanel() {
               {RANGES.map(r => (
                 <button
                   key={r}
-                  className={`btn btn-outline-secondary btn-range${timeRange === r ? ' active' : ''}`}
+                  className={`btn btn-range${
+                    timeRange === r
+                      ? r === '1m' ? ' btn-danger active' : ' btn-outline-secondary active'
+                      : r === '1m' ? ' btn-outline-danger' : ' btn-outline-secondary'
+                  }`}
                   onClick={() => applyRange(r)}
                 >
-                  {r}
+                  {r === '1m' && timeRange === '1m'
+                    ? <><span className="live-dot" /> Live</>
+                    : r === '1m' ? '1m live' : r}
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Refresh interval */}
+          <div className="col-auto d-flex align-items-end gap-1">
+            <label className="form-label mb-0 small text-muted" style={{ whiteSpace: 'nowrap' }}>
+              ↻ Refresh
+            </label>
+            <select
+              className="form-select form-select-sm"
+              style={{ width: 'auto' }}
+              value={pollInterval}
+              onChange={e => setPollInterval(Number(e.target.value))}
+            >
+              {POLL_OPTIONS.map(o => (
+                <option key={o.ms} value={o.ms}>{o.label}</option>
+              ))}
+            </select>
           </div>
 
           {/* Freq min/max */}

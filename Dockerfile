@@ -1,4 +1,4 @@
-FROM node:22-slim AS ui-builder
+FROM docker.io/node:22-slim AS ui-builder
 
 WORKDIR /ui
 
@@ -6,7 +6,7 @@ COPY ui/ ./
 RUN npm i
 RUN npm run build
 
-FROM python:3.13-slim
+FROM docker.io/python:3.13-slim
 
 # rtl-sdr provides rtl_power and the kernel USB driver bindings
 RUN apt-get update && apt-get install -y --no-install-recommends \

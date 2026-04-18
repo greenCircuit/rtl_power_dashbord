@@ -1,3 +1,5 @@
+import logging
+
 from flask import jsonify, request
 
 from app.data.parser import (
@@ -9,6 +11,8 @@ from app.data.parser import (
     get_band_timeseries,
 )
 from ._helpers import api_bp, _parse_filters, _parse_float_arg, _parse_granularity
+
+log = logging.getLogger(__name__)
 
 
 @api_bp.route("/bands/<band_id>/heatmap", methods=["GET"])

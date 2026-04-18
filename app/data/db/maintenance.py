@@ -1,8 +1,12 @@
 """Database maintenance — cleanup and status reporting."""
 
+import logging
+
 from sqlalchemy import func, text
 
 from ._engine import BandMeasurement, DB_PATH, _session, get_engine
+
+log = logging.getLogger(__name__)
 
 
 def cleanup_old_data(max_time_hrs: int, db_max_size_mb: int) -> dict:
@@ -67,10 +71,10 @@ def fetch_db_status() -> dict:
             func.count(BandMeasurement.id).label("count"),
             func.max(BandMeasurement.timestamp).label("last_seen"),
         ).group_by(BandMeasurement.band_id).all()
-    return {
-        "db_size_mb": size_mb,
-        "bands": [
-            {"band_id": r.band_id, "count": r.count, "last_seen": r.last_seen}
-            for r in rows
-        ],
-    }
+    bands = [
+        {"band_id": r.band_id, "count": r.count, "last_seen": r.last_seen}
+        for r in rows
+    ]
+    log.debug("DB status: size=%.2f MB, bands=%d, total_rows=%d",
+              size_mb, len(bands), sum(b["count"] for b in bands))
+    return {"db_size_mb": size_mb, "bands": bands}

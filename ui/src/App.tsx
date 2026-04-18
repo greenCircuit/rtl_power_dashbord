@@ -24,6 +24,7 @@ export default function App() {
   const setDevices   = useStore(s => s.setDevices)
   const tick         = useStore(s => s.tick)
   const analysisTick = useStore(s => s.analysisTick)
+  const pollInterval = useStore(s => s.pollInterval)
   const [statusOpen, setStatusOpen] = useState(false)
 
   // Load devices once on mount
@@ -31,12 +32,13 @@ export default function App() {
     api.fetchDevices().then(setDevices).catch(console.error)
   }, [])
 
-  // Poll: main charts every 15s, analysis charts every 60s
+  // Poll: main charts at pollInterval, analysis at 4× (min 60s). 0 = paused.
   useEffect(() => {
-    const t1 = setInterval(tick,         15_000)
-    const t2 = setInterval(analysisTick, 60_000)
+    if (pollInterval === 0) return
+    const t1 = setInterval(tick,         pollInterval)
+    const t2 = setInterval(analysisTick, Math.max(pollInterval * 4, 60_000))
     return () => { clearInterval(t1); clearInterval(t2) }
-  }, [])
+  }, [pollInterval])
 
   const selectedBand = bands.find(b => b.id === bandId)
 

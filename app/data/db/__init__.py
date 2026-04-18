@@ -8,8 +8,20 @@ from ._engine import (          # noqa: F401
     Base,
     Band,
     BandMeasurement,
+    BandMeasurementRollup,
     get_engine,
     init_db,
+)
+
+from .rollup import (           # noqa: F401
+    compute_rollup,
+    cleanup_rollup_tier,
+    fetch_rollup_measurements,
+    fetch_rollup_timeseries,
+    fetch_rollup_stats,
+    fetch_rollup_activity,
+    fetch_rollup_histogram,
+    fetch_rollup_signal_raw,
 )
 
 from .bands import (            # noqa: F401

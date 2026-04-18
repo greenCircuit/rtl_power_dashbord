@@ -6,9 +6,10 @@ Everything else in this package imports from here.
 import logging
 
 from sqlalchemy import (
-    Boolean, Column, Float, Index, Integer, String, Text,
+    Boolean, Column, Float, Index, Integer, String, Text, UniqueConstraint,
     create_engine, event,
 )
+from sqlalchemy.pool import NullPool
 from contextlib import contextmanager
 
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -53,6 +54,34 @@ class BandMeasurement(Base):
     )
 
 
+class BandMeasurementRollup(Base):
+    """Pre-aggregated measurements bucketed by time interval.
+
+    One row per (band_id, bucket_minutes, bucket_ts, frequency_mhz).
+    bucket_minutes identifies the tier (e.g. 15 or 60).
+    INSERT OR REPLACE relies on uq_rollup_bucket for idempotency.
+    """
+    __tablename__ = "band_measurements_rollup"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    band_id        = Column(String,  nullable=False)
+    bucket_minutes = Column(Integer, nullable=False)
+    bucket_ts      = Column(Text,    nullable=False)
+    frequency_mhz  = Column(Float,   nullable=False)
+    avg_db         = Column(Float,   nullable=False)
+    max_db         = Column(Float,   nullable=False)
+    min_db         = Column(Float,   nullable=False)
+    sample_count   = Column(Integer, nullable=False, default=1)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "band_id", "bucket_minutes", "bucket_ts", "frequency_mhz",
+            name="uq_rollup_bucket",
+        ),
+        Index("ix_rollup_lookup", "band_id", "bucket_minutes", "bucket_ts"),
+    )
+
+
 # ── Engine / session factory ──────────────────────────────────────────────────
 
 _engine = None
@@ -66,7 +95,9 @@ def get_engine():
         _engine = create_engine(
             f"sqlite:///{DB_PATH}",
             connect_args={"check_same_thread": False},
+            poolclass=NullPool,
         )
+        log.info("SQLite engine initialised — db=%s poolclass=NullPool", DB_PATH)
 
         @event.listens_for(_engine, "connect")
         def _set_pragmas(dbapi_conn, _record):
