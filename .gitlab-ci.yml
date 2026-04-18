@@ -103,7 +103,7 @@ git-leaks:
   stage: security
   extends: .secrets_scan
 
-try-image-scan:
+trivy-image-scan:
   stage: security
   needs:
   - release-dry-run
@@ -119,9 +119,10 @@ try-image-scan:
     # Skip TLS verification for self-signed certs on dev registry
     TRIVY_INSECURE: "true"
   script:
-    - trivy image registry.dev.local/home-lab/rtl_power_dashboard:${BUILD_VERSION} --exit-code 1 --severity HIGH,CRITICAL
+    - trivy image registry.dev.local/home-lab/rtl_power_dashbord:${BUILD_VERSION} --exit-code 1 --severity HIGH,CRITICAL
   allow_failure: true
 
 # Create release
-#create-release: 
-#  extends: .publish-release
+create-release: 
+  extends: .publish-release
+  needs: ["release-dry-run"]
