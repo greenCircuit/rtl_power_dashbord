@@ -29,11 +29,11 @@ COPY config.yaml .
 COPY --from=ui-builder /ui/dist ./ui/dist
 
 
-RUN useradd --system --create-home --shell /sbin/nologin --groups plugdev flask \
-    && mkdir -p /app/data \
-    && chown flask:flask /app/data
+# RUN useradd --system --create-home --shell /sbin/nologin --groups plugdev flask \
+#     && mkdir -p /app/data \
+#     && chown flask:flask /app/data
 
-USER flask
+# USER flask
 
 EXPOSE 8050
 
