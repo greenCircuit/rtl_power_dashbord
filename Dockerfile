@@ -30,8 +30,8 @@ COPY --from=ui-builder /ui/dist ./ui/dist
 
 
 RUN useradd --system --no-create-home --shell /sbin/nologin --groups plugdev flask \
-    && mkdir -p /app/data \
-    && chown flask:flask /app/data
+    && mkdir -p /app/data /.gunicorn \
+    && chown flask:flask /app/data /.gunicorn
 
 USER flask
 
